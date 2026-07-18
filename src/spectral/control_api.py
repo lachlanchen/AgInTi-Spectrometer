@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -9,6 +10,7 @@ from importlib import resources
 import json
 import queue
 import threading
+import time
 from typing import Any
 from urllib import error, request
 from urllib.parse import urlparse
@@ -57,7 +59,39 @@ class ControlBridge:
 
     def status(self) -> dict[str, Any]:
         with self._state_lock:
-            return self._state.copy()
+            state = copy.deepcopy(self._state)
+        frame = state.get("frame")
+        if isinstance(frame, dict):
+            timestamp_ns = int(frame.get("timestamp_ns") or 0)
+            age_seconds = (
+                max(0.0, (time.time_ns() - timestamp_ns) / 1_000_000_000)
+                if timestamp_ns
+                else float("inf")
+            )
+            exposure = state.get("exposure")
+            exposure_ms = (
+                float(exposure.get("ms", 0.0))
+                if isinstance(exposure, dict)
+                else 0.0
+            )
+            stale_after = max(2.0, exposure_ms / 1_000.0 + 1.0)
+            stale = age_seconds > stale_after
+            frame["age_seconds"] = round(age_seconds, 3)
+            frame["stale"] = stale
+            state["connected"] = state.get("state") == "live" and not stale
+            if stale:
+                state["state"] = "disconnected"
+                state["message"] = (
+                    f"No fresh hardware frame for {age_seconds:.1f} seconds"
+                )
+                acquisition = state.get("acquisition")
+                if isinstance(acquisition, dict):
+                    acquisition["fps"] = 0.0
+        elif state.get("state") in {"live", "waiting", "fault"}:
+            state["state"] = "disconnected"
+            state["connected"] = False
+            state["message"] = "C12880MA controller is not connected"
+        return state
 
     def update_spectrum(self, spectrum: dict[str, Any]) -> None:
         with self._state_lock:

@@ -55,10 +55,13 @@ function setUnlessFocused(node, value) {
 
 function updateStatus(state) {
   instrument = state;
-  const live = state.state === "live";
-  $("livePill").className = `live-pill ${live ? "" : "waiting"}`;
-  $("livePill").innerHTML = `<i></i>${live ? "Live" : "Waiting"}`;
-  $("portLabel").textContent = state.frame?.source?.replace("hardware:", "") || "C12880MA / scanning";
+  const disconnected = state.state === "disconnected" || Boolean(state.frame?.stale);
+  const live = state.state === "live" && !disconnected;
+  $("livePill").className = `live-pill ${live ? "" : disconnected ? "fault" : "waiting"}`;
+  $("livePill").innerHTML = `<i></i>${live ? "Live" : disconnected ? "Disconnected" : "Waiting"}`;
+  $("portLabel").textContent = disconnected
+    ? "C12880MA / disconnected"
+    : state.frame?.source?.replace("hardware:", "") || "C12880MA / scanning";
   $("autoExposure").checked = Boolean(state.exposure?.auto);
   $("autoY").checked = Boolean(state.y_scale?.auto);
   const unit = $("exposureUnit").value;
@@ -76,9 +79,17 @@ function updateStatus(state) {
   $("signalMetric").textContent = summary ? Math.round(summary.peak_counts).toLocaleString() : "--";
   $("integralMetric").textContent = summary ? `${(summary.integrated_counts_nm / 1e6).toFixed(2)} M` : "--";
   $("fpsMetric").textContent = `${(state.acquisition?.fps || 0).toFixed(1)} fps`;
-  $("frameLabel").textContent = state.frame ? `Frame ${state.frame.sequence} / ${state.frame.source}` : "No validated frame";
+  $("frameLabel").textContent = disconnected
+    ? state.frame
+      ? `Disconnected / last frame ${state.frame.age_seconds?.toFixed(1) ?? "--"} s ago`
+      : "Disconnected / no validated frame"
+    : state.frame ? `Frame ${state.frame.sequence} / ${state.frame.source}` : "No validated frame";
   $("saturationLabel").textContent = `Saturation ${summary?.saturated_pixels ?? "--"}/288`;
-  $("statusLine").textContent = `API connected / raw acquisition ${Math.round(state.acquisition?.fps || 0)} fps / web render 20 fps`;
+  $("statusLine").textContent = disconnected
+    ? state.frame
+      ? "API connected / hardware disconnected / last spectrum retained"
+      : "API connected / hardware disconnected / awaiting first spectrum"
+    : `API connected / raw acquisition ${Math.round(state.acquisition?.fps || 0)} fps / web render 20 fps`;
 }
 
 function wavelengthGradient(context, left, right, minimumNm, maximumNm) {
@@ -180,6 +191,31 @@ function drawSpectrum() {
   ctx.rotate(-Math.PI/2);
   ctx.fillText("ADC counts", 0, 0);
   ctx.restore();
+
+  if (instrument?.state === "disconnected" || instrument?.frame?.stale) {
+    ctx.save();
+    ctx.fillStyle = "rgba(255,253,248,.74)";
+    ctx.fillRect(margin.left, margin.top, plotW, plotH);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#a63f31";
+    ctx.font = `700 ${22*dpr}px "Bahnschrift", sans-serif`;
+    ctx.fillText(
+      "DEVICE DISCONNECTED",
+      margin.left + plotW / 2,
+      margin.top + plotH / 2 - 14 * dpr
+    );
+    ctx.fillStyle = "#53676d";
+    ctx.font = `${13*dpr}px "Cascadia Mono", monospace`;
+    ctx.fillText(
+      spectrum?.counts?.length
+        ? "Last validated spectrum retained"
+        : "Connect the controller to begin acquisition",
+      margin.left + plotW / 2,
+      margin.top + plotH / 2 + 18 * dpr
+    );
+    ctx.restore();
+  }
 }
 
 async function pollStatus() {

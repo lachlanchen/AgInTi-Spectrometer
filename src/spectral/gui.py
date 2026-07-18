@@ -337,6 +337,18 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         )
         self.peak_marker = pg.ScatterPlotItem(size=11, brush="#ff6542", pen=pg.mkPen("#ffffff", width=1.5))
         self.plot.addItem(self.peak_marker)
+        self.connection_notice = pg.TextItem(
+            "DEVICE DISCONNECTED\nWaiting for C12880MA controller",
+            color="#b23a2b",
+            anchor=(0.5, 0.5),
+        )
+        self.connection_notice.setFont(
+            QtGui.QFont("Bahnschrift", 15, QtGui.QFont.Weight.Bold)
+        )
+        self.connection_notice.setZValue(100)
+        self.connection_notice.setPos(595.0, 0.5)
+        self.connection_notice.show()
+        self.plot.addItem(self.connection_notice)
         self.reference_note = pg.TextItem(
             "VENDOR REFERENCE / NOMINAL AXIS", color="#9b351f", anchor=(0, 0)
         )
@@ -964,8 +976,30 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
     def _refresh_plot(self) -> None:
         generation, frame = self.latest.snapshot()
-        if frame is None or generation == self.last_generation:
+        if frame is None:
             return
+        frame_age_seconds = max(
+            0.0, (time.time_ns() - frame.timestamp_ns) / 1_000_000_000
+        )
+        stale_after = max(2.0, frame.exposure_ms / 1_000.0 + 1.0)
+        if generation == self.last_generation:
+            if frame_age_seconds > stale_after:
+                view_range = self.plot.viewRange()
+                self.connection_notice.setPos(
+                    sum(view_range[0]) / 2.0, sum(view_range[1]) / 2.0
+                )
+                self.connection_notice.setText(
+                    "DEVICE DISCONNECTED\n"
+                    f"Last frame {frame_age_seconds:.1f} s ago"
+                )
+                self.connection_notice.show()
+                self.acquisition_fps = 0.0
+                self.rate_card.value.setText("0.0 fps")
+                self.plot_caption.setText(
+                    "Device disconnected; last validated spectrum retained."
+                )
+            return
+        self.connection_notice.hide()
         self.last_generation = generation
         self.current_frame = frame
         counts = process_counts(frame.counts, dark=self.dark_reference)
