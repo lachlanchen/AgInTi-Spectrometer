@@ -338,7 +338,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.peak_marker = pg.ScatterPlotItem(size=11, brush="#ff6542", pen=pg.mkPen("#ffffff", width=1.5))
         self.plot.addItem(self.peak_marker)
         self.connection_notice = pg.TextItem(
-            "DEVICE DISCONNECTED\nWaiting for C12880MA controller",
+            "NO VALID FRAME\nExpected 590 bytes / 288 pixels",
             color="#b23a2b",
             anchor=(0.5, 0.5),
         )
@@ -989,8 +989,9 @@ class SpectrumWindow(QtWidgets.QMainWindow):
                     sum(view_range[0]) / 2.0, sum(view_range[1]) / 2.0
                 )
                 self.connection_notice.setText(
-                    "DEVICE DISCONNECTED\n"
-                    f"Last frame {frame_age_seconds:.1f} s ago"
+                    "FRAME STREAM STALLED\n"
+                    "Expected 590 bytes / 288 pixels / "
+                    f"last valid frame {frame_age_seconds:.1f} s ago"
                 )
                 self.connection_notice.show()
                 self.acquisition_fps = 0.0

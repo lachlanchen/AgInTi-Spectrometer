@@ -57,10 +57,12 @@ function updateStatus(state) {
   instrument = state;
   const disconnected = state.state === "disconnected" || Boolean(state.frame?.stale);
   const live = state.state === "live" && !disconnected;
+  const fault = state.fault;
+  const faultCode = fault?.code || (disconnected ? "DISCONNECTED" : null);
   $("livePill").className = `live-pill ${live ? "" : disconnected ? "fault" : "waiting"}`;
-  $("livePill").innerHTML = `<i></i>${live ? "Live" : disconnected ? "Disconnected" : "Waiting"}`;
+  $("livePill").innerHTML = `<i></i>${live ? "Live" : faultCode || "Waiting"}`;
   $("portLabel").textContent = disconnected
-    ? "C12880MA / disconnected"
+    ? `C12880MA / ${fault?.category || "disconnected"}`
     : state.frame?.source?.replace("hardware:", "") || "C12880MA / scanning";
   $("autoExposure").checked = Boolean(state.exposure?.auto);
   $("autoY").checked = Boolean(state.y_scale?.auto);
@@ -81,15 +83,14 @@ function updateStatus(state) {
   $("fpsMetric").textContent = `${(state.acquisition?.fps || 0).toFixed(1)} fps`;
   $("frameLabel").textContent = disconnected
     ? state.frame
-      ? `Disconnected / last frame ${state.frame.age_seconds?.toFixed(1) ?? "--"} s ago`
-      : "Disconnected / no validated frame"
+      ? `${faultCode} / last frame ${state.frame.age_seconds?.toFixed(1) ?? "--"} s ago`
+      : `${faultCode} / no validated frame`
     : state.frame ? `Frame ${state.frame.sequence} / ${state.frame.source}` : "No validated frame";
   $("saturationLabel").textContent = `Saturation ${summary?.saturated_pixels ?? "--"}/288`;
   $("statusLine").textContent = disconnected
-    ? state.frame
-      ? "API connected / hardware disconnected / last spectrum retained"
-      : "API connected / hardware disconnected / awaiting first spectrum"
+    ? `${faultCode} / ${fault?.detail || "hardware disconnected"} / invalid ${state.frame_health?.invalid_frames ?? 0}`
     : `API connected / raw acquisition ${Math.round(state.acquisition?.fps || 0)} fps / web render 20 fps`;
+  drawSpectrum();
 }
 
 function wavelengthGradient(context, left, right, minimumNm, maximumNm) {
@@ -201,16 +202,16 @@ function drawSpectrum() {
     ctx.fillStyle = "#a63f31";
     ctx.font = `700 ${22*dpr}px "Bahnschrift", sans-serif`;
     ctx.fillText(
-      "DEVICE DISCONNECTED",
+      fault?.title?.toUpperCase() || "DEVICE DISCONNECTED",
       margin.left + plotW / 2,
       margin.top + plotH / 2 - 14 * dpr
     );
     ctx.fillStyle = "#53676d";
     ctx.font = `${13*dpr}px "Cascadia Mono", monospace`;
     ctx.fillText(
-      spectrum?.counts?.length
-        ? "Last validated spectrum retained"
-        : "Connect the controller to begin acquisition",
+      fault?.code === "FRAME_STALE"
+        ? `No 590-byte frame for ${instrument.frame?.age_seconds?.toFixed(1) ?? "--"} s`
+        : fault?.detail || "Connect the controller to begin acquisition",
       margin.left + plotW / 2,
       margin.top + plotH / 2 + 18 * dpr
     );

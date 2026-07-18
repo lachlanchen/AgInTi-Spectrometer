@@ -60,6 +60,11 @@ class ControlBridge:
     def status(self) -> dict[str, Any]:
         with self._state_lock:
             state = copy.deepcopy(self._state)
+        acquisition = state.get("acquisition")
+        if not isinstance(acquisition, dict):
+            acquisition = {}
+        valid_frames = int(acquisition.get("valid_frames", 0))
+        invalid_frames = int(acquisition.get("invalid_frames", 0))
         frame = state.get("frame")
         if isinstance(frame, dict):
             timestamp_ns = int(frame.get("timestamp_ns") or 0)
@@ -78,19 +83,66 @@ class ControlBridge:
             stale = age_seconds > stale_after
             frame["age_seconds"] = round(age_seconds, 3)
             frame["stale"] = stale
+            state["frame_health"] = {
+                "status": "stale" if stale else "valid",
+                "expected_bytes": 590,
+                "expected_pixels": 288,
+                "sequence": frame.get("sequence"),
+                "age_seconds": round(age_seconds, 3),
+                "valid_frames": valid_frames,
+                "invalid_frames": invalid_frames,
+            }
             state["connected"] = state.get("state") == "live" and not stale
             if stale:
                 state["state"] = "disconnected"
                 state["message"] = (
                     f"No fresh hardware frame for {age_seconds:.1f} seconds"
                 )
-                acquisition = state.get("acquisition")
-                if isinstance(acquisition, dict):
-                    acquisition["fps"] = 0.0
+                state["fault"] = {
+                    "code": "FRAME_STALE",
+                    "category": "transport",
+                    "title": "Frame stream stalled",
+                    "detail": (
+                        "No validated 590-byte, 288-pixel frame arrived for "
+                        f"{age_seconds:.1f} seconds"
+                    ),
+                    "likely_cause": (
+                        "USB disconnected, controller stopped, or serial transfer failed"
+                    ),
+                }
+                acquisition["fps"] = 0.0
+            elif state.get("state") == "fault":
+                state["fault"] = {
+                    "code": "ACQUISITION_FAULT",
+                    "category": "acquisition",
+                    "title": "Acquisition worker fault",
+                    "detail": str(state.get("message") or "Unclassified acquisition error"),
+                    "likely_cause": "Controller, protocol, or serial I/O error",
+                }
+            else:
+                state["fault"] = None
         elif state.get("state") in {"live", "waiting", "fault"}:
             state["state"] = "disconnected"
             state["connected"] = False
             state["message"] = "C12880MA controller is not connected"
+            state["frame_health"] = {
+                "status": "missing",
+                "expected_bytes": 590,
+                "expected_pixels": 288,
+                "sequence": None,
+                "age_seconds": None,
+                "valid_frames": valid_frames,
+                "invalid_frames": invalid_frames,
+            }
+            state["fault"] = {
+                "code": "NO_VALID_FRAME",
+                "category": "connection",
+                "title": "No validated frame",
+                "detail": "No complete 590-byte, 288-pixel frame has been received",
+                "likely_cause": (
+                    "Controller absent, wrong COM port, identity failure, or startup fault"
+                ),
+            }
         return state
 
     def update_spectrum(self, spectrum: dict[str, Any]) -> None:
