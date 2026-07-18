@@ -28,12 +28,38 @@ Open only the bundled reference dataset:
 uv run spectrum-studio --demo
 ```
 
+## GUI, CLI, and API control
+
+The GUI starts a thread-safe control API at `http://127.0.0.1:8766`. Bind with
+`--api-host 0.0.0.0` only when a trusted LAN agent must reach it. GUI, CLI, and
+HTTP commands share the same validated control actions.
+
+```powershell
+uv run spectrum-studio ctl status
+uv run spectrum-studio ctl exposure 250 us
+uv run spectrum-studio ctl exposure 10 ms
+uv run spectrum-studio ctl exposure-auto on
+uv run spectrum-studio ctl exposure-meter
+uv run spectrum-studio ctl y-auto on
+uv run spectrum-studio ctl y-fit
+uv run spectrum-studio ctl smoothing smooth
+```
+
+Direct HTTP clients can use `GET /api/v1/status` and POST JSON to
+`/api/v1/exposure`, `/api/v1/exposure/auto`, `/api/v1/exposure/meter`,
+`/api/v1/y-scale/auto`, `/api/v1/y-scale/fit`, `/api/v1/y-scale/limits`, and
+`/api/v1/smoothing`.
+
 ## Features
 
 - Active `c12880` identity probing, so selection does not depend on a guessed VID/PID or COM number.
 - Vendor-compatible identity, initialization, exposure, output-mask, and trigger transactions.
 - Exact 590-byte frame validation and 288-pixel decoding.
 - Background acquisition with a 30 Hz GUI refresh, so plotting does not determine capture rate.
+- A 3 us to 1 s integration range with continuous auto exposure and one-shot metering.
+- Continuous or one-shot Y-range fitting, plus editable fixed display limits.
+- Wavelength-colored under-curve shading and display-only low-lag smoothing.
+- Local HTTP/JSON control and a CLI client for agents and external applications.
 - Internal/software and external/TTL trigger modes.
 - Integration-time control, frame averaging, dark subtraction, CSV recording, and PNG export.
 - Nominal 340-850 nm mapping with support for per-device wavelength coefficients.

@@ -278,8 +278,6 @@ class C12880Device:
                 build_exposure_command(self.exposure_ms, self.output_mask)
             )
             self.serial.flush()
-            time.sleep(0.1)
-            self.serial.reset_input_buffer()
 
     def set_output_mask(self, output_mask: int) -> None:
         if not 0 <= int(output_mask) <= 0x03:
@@ -293,8 +291,6 @@ class C12880Device:
                     build_exposure_command(self.exposure_ms, self.output_mask)
                 )
                 self.serial.flush()
-                time.sleep(0.1)
-                self.serial.reset_input_buffer()
 
     def set_trigger_mode(self, trigger_mode: TriggerMode) -> None:
         if trigger_mode not in ("internal", "external"):

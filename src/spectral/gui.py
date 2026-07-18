@@ -15,6 +15,7 @@ import pyqtgraph.exporters
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from .calibration import WavelengthCalibration, metrics, process_counts
+from .control_api import ControlApiServer, ControlBridge
 from .device import C12880Device, enumerate_ports, port_report
 from .protocol import DEFAULT_EXPOSURE_MS, DEFAULT_OUTPUT_MASK, SpectrumFrame
 from .recording import CsvRecorder
@@ -90,8 +91,8 @@ class AcquisitionWorker(QtCore.QObject):
     def run(self) -> None:
         valid = 0
         invalid = 0
-        t0 = time.perf_counter()
         last_status = 0.0
+        frame_times: deque[float] = deque(maxlen=256)
         window: deque[np.ndarray] = deque(maxlen=1)
         window_sum: np.ndarray | None = None
         try:
@@ -142,6 +143,7 @@ class AcquisitionWorker(QtCore.QObject):
                         )
                     self.latest.publish(frame)
                     valid += 1
+                    frame_times.append(time.perf_counter())
                     state = "streaming"
                     message = "Valid 288-pixel stream"
                 except Exception as exc:
@@ -152,14 +154,18 @@ class AcquisitionWorker(QtCore.QObject):
                     time.sleep(0.08)
                 now = time.perf_counter()
                 if now - last_status >= 0.45:
-                    elapsed = max(now - t0, 1e-9)
+                    fps = 0.0
+                    if len(frame_times) > 1:
+                        fps = (len(frame_times) - 1) / max(
+                            frame_times[-1] - frame_times[0], 1e-9
+                        )
                     self.status.emit({
                         "state": state,
                         "message": message,
                         "port": self.device.descriptor.to_dict() if self.device.descriptor else None,
                         "valid": valid,
                         "invalid": invalid,
-                        "fps": valid / elapsed,
+                        "fps": fps,
                         "raw_hex": self.device.last_raw[:48].hex(" "),
                     })
                     last_status = now
@@ -191,7 +197,14 @@ class MetricCard(QtWidgets.QFrame):
 
 
 class SpectrumWindow(QtWidgets.QMainWindow):
-    def __init__(self, *, requested_port: str | None = None, demo_only: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        requested_port: str | None = None,
+        demo_only: bool = False,
+        api_host: str = "127.0.0.1",
+        api_port: int = 8766,
+    ) -> None:
         super().__init__()
         self.requested_port = requested_port
         self.demo_only = demo_only
@@ -205,6 +218,13 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.last_generation = -1
         self.current_frame: SpectrumFrame | None = None
         self.current_counts: np.ndarray | None = None
+        self.current_display_counts: np.ndarray | None = None
+        self.display_ema: np.ndarray | None = None
+        self.last_auto_exposure_adjustment = 0.0
+        self.auto_exposure_settle_until = 0.0
+        self.acquisition_fps = 0.0
+        self.valid_frames = 0
+        self.invalid_frames = 0
         self.dark_reference: np.ndarray | None = None
         self.y_floor = 0.0
         self.y_ceiling = 1.0
@@ -213,6 +233,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.setMinimumSize(1100, 700)
         self._build_ui()
         self._apply_style()
+        self.control_bridge = ControlBridge()
+        self.control_api = ControlApiServer(self.control_bridge, api_host, api_port)
         if demo_only:
             self._load_reference_sample(initial=True)
         else:
@@ -221,6 +243,16 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.timer.setInterval(33)
         self.timer.timeout.connect(self._refresh_plot)
         self.timer.start()
+        self.control_timer = QtCore.QTimer(self)
+        self.control_timer.setInterval(20)
+        self.control_timer.timeout.connect(self._process_control_requests)
+        self.control_timer.start()
+        try:
+            self.control_api.start()
+            self._append_diagnostic(f"Control API: http://{api_host}:{api_port}/api/v1/status")
+        except OSError as exc:
+            self._append_diagnostic(f"Control API unavailable: {exc}")
+        self._publish_control_state()
         if not demo_only:
             QtCore.QTimer.singleShot(350, self.start_hardware)
 
@@ -276,10 +308,28 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             region = pg.LinearRegionItem((left, right), movable=False, brush=color, pen=None)
             region.setZValue(-20)
             self.plot.addItem(region)
+        spectrum_gradient = QtGui.QLinearGradient(0.0, 0.0, 1.0, 0.0)
+        spectrum_gradient.setCoordinateMode(
+            QtGui.QGradient.CoordinateMode.ObjectBoundingMode
+        )
+        for position, rgba in [
+            (0.00, (83, 50, 145, 32)),
+            (0.08, (108, 60, 196, 78)),
+            (0.20, (45, 83, 224, 92)),
+            (0.30, (26, 174, 222, 92)),
+            (0.36, (41, 190, 112, 94)),
+            (0.48, (239, 205, 56, 98)),
+            (0.55, (246, 136, 45, 98)),
+            (0.65, (225, 55, 48, 94)),
+            (0.86, (137, 35, 52, 62)),
+            (1.00, (81, 31, 45, 28)),
+        ]:
+            spectrum_gradient.setColorAt(position, QtGui.QColor(*rgba))
+        self.spectrum_brush = QtGui.QBrush(spectrum_gradient)
         self.curve = self.plot.plot(
             self.wavelengths, np.zeros_like(self.wavelengths),
             pen=pg.mkPen("#007f76", width=2.4),
-            fillLevel=0, brush=pg.mkBrush(42, 166, 154, 35),
+            fillLevel=0, brush=self.spectrum_brush,
         )
         self.peak_marker = pg.ScatterPlotItem(size=11, brush="#ff6542", pen=pg.mkPen("#ffffff", width=1.5))
         self.plot.addItem(self.peak_marker)
@@ -321,7 +371,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         form.setContentsMargins(16, 15, 16, 15)
         form.setSpacing(12)
         self.exposure = QtWidgets.QDoubleSpinBox()
-        self.exposure.setRange(3.0, 10.0)
+        self.exposure.setRange(3.0, 1_000_000.0)
         self.exposure.setDecimals(3)
         self.exposure.setValue(DEFAULT_EXPOSURE_MS * 1_000.0)
         self.exposure.setSingleStep(0.1)
@@ -338,6 +388,23 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         integration_layout.setSpacing(6)
         integration_layout.addWidget(self.exposure, 1)
         integration_layout.addWidget(self.exposure_unit)
+        self.auto_exposure = QtWidgets.QCheckBox("Auto")
+        self.auto_exposure.setToolTip(
+            "Continuously meter the spectrum and keep it in the useful 16-bit range."
+        )
+        self.auto_exposure.toggled.connect(self._auto_exposure_toggled)
+        self.fit_exposure_button = QtWidgets.QPushButton("Meter once")
+        self.fit_exposure_button.setToolTip(
+            "Calculate a fixed integration time for the current illumination."
+        )
+        self.fit_exposure_button.clicked.connect(self._fit_current_exposure)
+        exposure_mode_control = QtWidgets.QWidget()
+        exposure_mode_layout = QtWidgets.QHBoxLayout(exposure_mode_control)
+        exposure_mode_layout.setContentsMargins(0, 0, 0, 0)
+        exposure_mode_layout.setSpacing(8)
+        exposure_mode_layout.addWidget(self.auto_exposure)
+        exposure_mode_layout.addStretch(1)
+        exposure_mode_layout.addWidget(self.fit_exposure_button)
         self.averaging = QtWidgets.QSpinBox()
         self.averaging.setRange(1, 64)
         self.averaging.setValue(1)
@@ -351,9 +418,22 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.output_mask.setValue(DEFAULT_OUTPUT_MASK)
         self.output_mask.valueChanged.connect(self._controls_changed)
         form.addRow("Integration", integration_control)
+        form.addRow("Exposure mode", exposure_mode_control)
         form.addRow("Frame average", self.averaging)
         form.addRow("Trigger", self.trigger_mode)
         form.addRow("OUT2/OUT3 mask", self.output_mask)
+        self.display_smoothing = QtWidgets.QComboBox()
+        self.display_smoothing.addItem("Raw / no filter", 0)
+        self.display_smoothing.addItem("Fast / low lag", 1)
+        self.display_smoothing.addItem("Smooth", 2)
+        self.display_smoothing.setCurrentIndex(1)
+        self.display_smoothing.setToolTip(
+            "Display-only filtering; raw acquisition and CSV stay full-rate."
+        )
+        self.display_smoothing.currentIndexChanged.connect(
+            self._display_smoothing_changed
+        )
+        form.addRow("Display filter", self.display_smoothing)
 
         self.auto_y = QtWidgets.QCheckBox("Auto")
         self.auto_y.setChecked(True)
@@ -361,7 +441,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             "Continuously follow the useful signal range using robust percentiles."
         )
         self.auto_y.toggled.connect(self._auto_y_toggled)
-        self.fit_y_button = QtWidgets.QPushButton("Fit current")
+        self.fit_y_button = QtWidgets.QPushButton("Fit once")
         self.fit_y_button.setToolTip(
             "Find the best Y range for the current spectrum, then freeze that range."
         )
@@ -473,6 +553,87 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         value = float(self.exposure.value())
         return value / 1_000.0 if self.exposure_unit.currentData() == "us" else value
 
+    def _set_exposure_ms(self, exposure_ms: float) -> None:
+        exposure_ms = float(np.clip(exposure_ms, 0.003, 1_000.0))
+        self.exposure.blockSignals(True)
+        if self.exposure_unit.currentData() == "us":
+            self.exposure.setValue(exposure_ms * 1_000.0)
+        else:
+            self.exposure.setValue(exposure_ms)
+        self.exposure.blockSignals(False)
+        self._controls_changed()
+        self.auto_exposure_settle_until = time.perf_counter() + max(
+            0.08, exposure_ms / 1_000.0 * 1.5
+        )
+
+    @staticmethod
+    def _suggest_exposure_ms(counts: np.ndarray, current_ms: float) -> float:
+        finite = counts[np.isfinite(counts)]
+        if not finite.size:
+            return current_ms
+        baseline = float(np.percentile(finite, 5.0))
+        highlight = float(np.percentile(finite, 99.5))
+        signal = max(highlight - baseline, 1.0)
+        target_signal = 0.78 * max(65_535.0 - baseline, 1.0)
+        suggested = current_ms * target_signal / signal
+        return float(np.clip(suggested, 0.003, 1_000.0))
+
+    def _auto_exposure_toggled(self, enabled: bool) -> None:
+        self.exposure.setEnabled(not enabled)
+        self.exposure_unit.setEnabled(not enabled)
+        self.last_auto_exposure_adjustment = 0.0
+        if hasattr(self, "control_bridge"):
+            self._publish_control_state()
+
+    def _fit_current_exposure(self) -> None:
+        if self.current_frame is None:
+            return
+        current_ms = self._displayed_exposure_ms()
+        suggested = self._suggest_exposure_ms(self.current_frame.counts, current_ms)
+        self.auto_exposure.setChecked(False)
+        self._set_exposure_ms(suggested)
+
+    def _update_auto_exposure(self, counts: np.ndarray) -> None:
+        if not self.auto_exposure.isChecked():
+            return
+        now = time.perf_counter()
+        if (
+            now < self.auto_exposure_settle_until
+            or now - self.last_auto_exposure_adjustment < 0.15
+        ):
+            return
+        current_ms = self._displayed_exposure_ms()
+        suggested = self._suggest_exposure_ms(counts, current_ms)
+        if abs(suggested - current_ms) / max(current_ms, 1e-9) < 0.05:
+            self.last_auto_exposure_adjustment = now
+            return
+        log_current = np.log(max(current_ms, 0.003))
+        log_suggested = np.log(max(suggested, 0.003))
+        damped = float(np.exp(log_current + 0.35 * (log_suggested - log_current)))
+        self._set_exposure_ms(damped)
+        self.last_auto_exposure_adjustment = now
+
+    def _display_smoothing_changed(self, _index: int) -> None:
+        self.display_ema = None
+        if hasattr(self, "control_bridge"):
+            self._publish_control_state()
+
+    def _filter_for_display(self, counts: np.ndarray) -> np.ndarray:
+        level = int(self.display_smoothing.currentData())
+        filtered = np.asarray(counts, dtype=np.float64)
+        kernel = np.array([1.0, 4.0, 6.0, 4.0, 1.0]) / 16.0
+        passes = 0 if level == 0 else (1 if level == 1 else 2)
+        for _ in range(passes):
+            filtered = np.convolve(
+                np.pad(filtered, 2, mode="edge"), kernel, mode="valid"
+            )
+        alpha = {0: 1.0, 1: 0.70, 2: 0.35}[level]
+        if alpha >= 1.0 or self.display_ema is None:
+            self.display_ema = filtered.copy()
+        else:
+            self.display_ema += alpha * (filtered - self.display_ema)
+        return self.display_ema
+
     def _exposure_unit_changed(self, _index: int) -> None:
         new_unit = str(self.exposure_unit.currentData())
         old_unit = self._exposure_display_unit
@@ -486,14 +647,14 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self._exposure_display_unit = new_unit
         self.exposure.blockSignals(True)
         if new_unit == "us":
-            self.exposure.setRange(3.0, 10.0)
+            self.exposure.setRange(3.0, 1_000_000.0)
             self.exposure.setDecimals(3)
-            self.exposure.setSingleStep(0.1)
+            self.exposure.setSingleStep(1.0)
             self.exposure.setValue(current_ms * 1_000.0)
         else:
-            self.exposure.setRange(0.003, 0.010)
+            self.exposure.setRange(0.003, 1_000.0)
             self.exposure.setDecimals(3)
-            self.exposure.setSingleStep(0.001)
+            self.exposure.setSingleStep(0.1)
             self.exposure.setValue(current_ms)
         self.exposure.blockSignals(False)
         self._controls_changed()
@@ -541,9 +702,12 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self._apply_manual_y_range()
 
     def _fit_current_y(self) -> None:
-        if self.current_counts is None:
+        counts = self.current_display_counts
+        if counts is None:
+            counts = self.current_counts
+        if counts is None:
             return
-        floor, ceiling = self._suggest_y_range(self.current_counts)
+        floor, ceiling = self._suggest_y_range(counts)
         self._set_y_limit_controls(floor, ceiling)
         self.auto_y.setChecked(False)
         self._apply_manual_y_range()
@@ -555,10 +719,115 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             str(self.trigger_mode.currentData()),
             self.output_mask.value(),
         )
+        if hasattr(self, "control_bridge"):
+            self._publish_control_state()
+
+    def _publish_control_state(self, **extra: object) -> None:
+        frame = self.current_frame
+        spectrum: dict[str, object] | None = None
+        if self.current_counts is not None:
+            summary = metrics(self.wavelengths, self.current_counts)
+            spectrum = {
+                "peak_nm": summary.peak_nm,
+                "peak_counts": summary.peak_counts,
+                "integrated_counts_nm": summary.integrated_counts_nm,
+                "saturated_pixels": summary.saturated_pixels,
+            }
+        state: dict[str, object] = {
+            "state": "live" if frame is not None and frame.sequence >= 0 else "waiting",
+            "exposure": {
+                "ms": self._displayed_exposure_ms(),
+                "us": self._displayed_exposure_ms() * 1_000.0,
+                "auto": self.auto_exposure.isChecked(),
+                "range_ms": [0.003, 1_000.0],
+            },
+            "y_scale": {
+                "auto": self.auto_y.isChecked(),
+                "minimum": self.y_floor,
+                "maximum": self.y_ceiling,
+            },
+            "smoothing": str(self.display_smoothing.currentText()),
+            "acquisition": {
+                "fps": self.acquisition_fps,
+                "valid_frames": self.valid_frames,
+                "invalid_frames": self.invalid_frames,
+                "render_fps": 30,
+            },
+            "frame": None if frame is None else {
+                "sequence": frame.sequence,
+                "timestamp_ns": frame.timestamp_ns,
+                "source": frame.source,
+            },
+            "spectrum": spectrum,
+        }
+        state.update(extra)
+        self.control_bridge.update_state(state)
+
+    def _execute_control(self, action: str, payload: dict[str, object]) -> object:
+        if action == "set_exposure":
+            value = float(payload["value"])
+            unit = str(payload.get("unit", "us")).lower()
+            if unit not in ("us", "ms"):
+                raise ValueError("unit must be us or ms")
+            exposure_ms = value / 1_000.0 if unit == "us" else value
+            if not 0.003 <= exposure_ms <= 1_000.0:
+                raise ValueError("exposure must be between 3 us and 1000 ms")
+            self.auto_exposure.setChecked(False)
+            self._set_exposure_ms(exposure_ms)
+            return {"exposure_ms": exposure_ms}
+        if action == "set_auto_exposure":
+            self.auto_exposure.setChecked(bool(payload["enabled"]))
+            return {"auto": self.auto_exposure.isChecked()}
+        if action == "meter_exposure":
+            if self.current_frame is None:
+                raise RuntimeError("no live frame is available")
+            self._fit_current_exposure()
+            return {"exposure_ms": self._displayed_exposure_ms()}
+        if action == "set_y_auto":
+            self.auto_y.setChecked(bool(payload["enabled"]))
+            return {"auto": self.auto_y.isChecked()}
+        if action == "fit_y":
+            if self.current_counts is None:
+                raise RuntimeError("no spectrum is available")
+            self._fit_current_y()
+            return {"minimum": self.y_floor, "maximum": self.y_ceiling}
+        if action == "set_y_limits":
+            minimum = float(payload["minimum"])
+            maximum = float(payload["maximum"])
+            if maximum <= minimum:
+                raise ValueError("maximum must be greater than minimum")
+            self._set_y_limit_controls(minimum, maximum)
+            self.auto_y.setChecked(False)
+            self._apply_manual_y_range()
+            return {"minimum": minimum, "maximum": maximum}
+        if action == "set_smoothing":
+            modes = {"raw": 0, "fast": 1, "smooth": 2}
+            mode = str(payload["mode"]).lower()
+            if mode not in modes:
+                raise ValueError("mode must be raw, fast, or smooth")
+            self.display_smoothing.setCurrentIndex(modes[mode])
+            return {"mode": mode}
+        raise ValueError(f"unknown control action: {action}")
+
+    def _process_control_requests(self) -> None:
+        for command in self.control_bridge.drain():
+            try:
+                result = self._execute_control(command.action, command.payload)
+                self._publish_control_state()
+                response = {
+                    "ok": True,
+                    "result": result,
+                    "status": self.control_bridge.status(),
+                }
+            except Exception as exc:
+                response = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+            command.reply.put(response)
 
     def _show_waiting_state(self) -> None:
         self.current_frame = None
         self.current_counts = None
+        self.current_display_counts = None
+        self.display_ema = None
         self.curve.setData(self.wavelengths, np.zeros_like(self.wavelengths))
         self.peak_marker.clear()
         self.reference_note.setText("NO VALID HARDWARE FRAME")
@@ -584,6 +853,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
                 values.append(float(row["counts"]))
         self.wavelengths = np.asarray(wavelengths)
         self.current_counts = np.asarray(values)
+        self.current_display_counts = self.current_counts
         self.current_frame = SpectrumFrame(
             sequence=-1, timestamp_ns=time.time_ns(), exposure_ms=0.0,
             counts=self.current_counts.copy(), prefix_words=(), raw_size=0,
@@ -620,6 +890,9 @@ class SpectrumWindow(QtWidgets.QMainWindow):
     @QtCore.Slot(object)
     def _hardware_status(self, status: dict[str, object]) -> None:
         state = str(status.get("state", "fault"))
+        self.acquisition_fps = float(status.get("fps", 0.0))
+        self.valid_frames = int(status.get("valid", 0))
+        self.invalid_frames = int(status.get("invalid", 0))
         if state == "streaming":
             self.status_pill.setText("LIVE")
             self.status_pill.setStyleSheet("background:#2ca58d;color:white;")
@@ -637,6 +910,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             f"{state.upper()} valid={status.get('valid', 0)} invalid={status.get('invalid', 0)}\n"
             f"{status.get('message', '')}\nraw: {status.get('raw_hex', '')}"
         )
+        self._publish_control_state()
 
     def _thread_finished(self) -> None:
         self.connect_button.setEnabled(True)
@@ -651,7 +925,11 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.current_frame = frame
         counts = process_counts(frame.counts, dark=self.dark_reference)
         self.current_counts = counts
-        self._render(frame, counts)
+        self._update_auto_exposure(frame.counts)
+        display_counts = self._filter_for_display(counts)
+        self.current_display_counts = display_counts
+        self._render(frame, display_counts)
+        self._publish_control_state()
         self.reference_note.hide()
         self.plot_caption.setText(
             "Live validated frame; acquisition continues independently of this 30 Hz display."
@@ -677,6 +955,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
                 self.y_floor + 1.0, float(self.y_max_control.value())
             )
         self.plot.setYRange(self.y_floor, self.y_ceiling, padding=0)
+        self.curve.setFillLevel(self.y_floor)
         self.reference_note.setPos(
             355, self.y_floor + (self.y_ceiling - self.y_floor) * 0.92
         )
@@ -731,6 +1010,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         self.timer.stop()
+        self.control_timer.stop()
+        self.control_api.stop()
         self.recorder.stop()
         if self.worker:
             self.worker.request_stop()
@@ -740,12 +1021,23 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         event.accept()
 
 
-def run_gui(*, requested_port: str | None = None, demo_only: bool = False) -> int:
+def run_gui(
+    *,
+    requested_port: str | None = None,
+    demo_only: bool = False,
+    api_host: str = "127.0.0.1",
+    api_port: int = 8766,
+) -> int:
     pg.setConfigOptions(antialias=False)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     app.setApplicationName("AgInTi Spectrum Studio")
     app.setOrganizationName("LazyingArt")
     app.setStyle("Fusion")
-    window = SpectrumWindow(requested_port=requested_port, demo_only=demo_only)
+    window = SpectrumWindow(
+        requested_port=requested_port,
+        demo_only=demo_only,
+        api_host=api_host,
+        api_port=api_port,
+    )
     window.show()
     return app.exec()
