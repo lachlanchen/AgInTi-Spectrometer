@@ -1,7 +1,7 @@
 {
     "schema":  "aginti.c12880.firmware-suite.v2",
-    "generated_utc":  "2026-07-19T16:30:38.0905857Z",
-    "state":  "COMPILED_NOT_FLASHED",
+    "generated_utc":  "2026-07-22T12:52:21.8560101Z",
+    "state":  "HARDWARE_VALIDATED",
     "target":  "STM32H743xx",
     "compiler":  "arm-none-eabi-gcc.exe (Arm GNU Toolchain 14.2.Rel1 (Build arm-14.52)) 14.2.1 20241119",
     "components":  {
@@ -12,23 +12,23 @@
                                               "artifacts":  [
                                                                 {
                                                                     "path":  "firmware/sdk/build-suite/aginti_c12880_reconstruction_h743.elf",
-                                                                    "bytes":  221920,
-                                                                    "sha256":  "1FB0D73A3FC1E4841B4B85A5880C1AB5CA9548DF02FF77846530D192E2CB43CB"
+                                                                    "bytes":  223016,
+                                                                    "sha256":  "0DC03E59E93B52E0DB18594BC2AF86EF7ED99C9BE457B1442C78C23F9BAB6163"
                                                                 },
                                                                 {
                                                                     "path":  "firmware/sdk/build-suite/aginti_c12880_reconstruction_h743.bin",
-                                                                    "bytes":  47704,
-                                                                    "sha256":  "4212AD58B37D372C6D524691802BDDA41F953A0D9EE5FFD4B9D4B9BFC48AA389"
+                                                                    "bytes":  48096,
+                                                                    "sha256":  "0D812048AFD5FD975DF4A8CCD61EAF657E1869E75B3A4FC16E5D7C7BEEF77D25"
                                                                 },
                                                                 {
                                                                     "path":  "firmware/sdk/build-suite/aginti_c12880_reconstruction_h743.hex",
-                                                                    "bytes":  134264,
-                                                                    "sha256":  "035F6D23EF71194F051D97C5806BCD14333DC775191D27B4EA1BD135306FB589"
+                                                                    "bytes":  135373,
+                                                                    "sha256":  "84BDF4A2F06014536DF505CF45FEB152AA6F5F405A2014E0DBCF8E46E038F9ED"
                                                                 },
                                                                 {
                                                                     "path":  "firmware/sdk/build-suite/aginti_c12880_reconstruction_h743.map",
-                                                                    "bytes":  335991,
-                                                                    "sha256":  "87A2DA0A862D53961012215BACF4B101AC4068C26F3140DC7AAB835A86D97136"
+                                                                    "bytes":  337517,
+                                                                    "sha256":  "77B640A41DC1D3057A34B44D9ABFD3FAEDFF4A2AE99BA4F56CB80B301F1C1D76"
                                                                 }
                                                             ]
                                           },
@@ -39,23 +39,23 @@
                                            "artifacts":  [
                                                              {
                                                                  "path":  "firmware/sdk/build-suite/aginti_c12880_h743.elf",
-                                                                 "bytes":  286408,
-                                                                 "sha256":  "37F862F3D7EF79ACFD07FE613038647C3065C8B376E426AFDD4CFEAE2571FAC7"
+                                                                 "bytes":  288164,
+                                                                 "sha256":  "5DBF07D329F3BE6778FB24322EA214B199C5EFAF90AB20F248BCAA8B5B5FE892"
                                                              },
                                                              {
                                                                  "path":  "firmware/sdk/build-suite/aginti_c12880_h743.bin",
-                                                                 "bytes":  55136,
-                                                                 "sha256":  "2481C4558D8C1D4DBE829C3FBCE3D6A688A88C80B56D348CF46FE78F2E54C6BC"
+                                                                 "bytes":  55880,
+                                                                 "sha256":  "04CD5791F3FB8466891C01A69E5CE4861DCF48B1CC23E22F3A85454038A94500"
                                                              },
                                                              {
                                                                  "path":  "firmware/sdk/build-suite/aginti_c12880_h743.hex",
-                                                                 "bytes":  155173,
-                                                                 "sha256":  "89E4216C8A497537B856600105F28C7ED25E818507A499E7BF2598115A6A8A3D"
+                                                                 "bytes":  157259,
+                                                                 "sha256":  "B594DD1C5BDD85CBB71C8661DB8C21EAC03C44BD1CB50421E5C3B35479A9DF39"
                                                              },
                                                              {
                                                                  "path":  "firmware/sdk/build-suite/aginti_c12880_h743.map",
-                                                                 "bytes":  319294,
-                                                                 "sha256":  "434D64CF04A9A8FD7008900C74ED1011450A0A9960D5A31ADAB706A6B0291F32"
+                                                                 "bytes":  320934,
+                                                                 "sha256":  "3DFEDC17F456FBA7A0CEEDF0166D971C9DD9C8D7A7BAA7969016AA6491BA8B09"
                                                              }
                                                          ]
                                        },
@@ -99,8 +99,8 @@
                                            "published":  false
                                        },
     "safety":  {
-                   "flashed":  false,
-                   "erased":  false,
+                   "flashed":  true,
+                   "erased":  true,
                    "option_bytes_modified":  false,
                    "eeprom_modified":  false
                }

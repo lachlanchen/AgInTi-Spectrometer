@@ -1,53 +1,68 @@
 {
-  "schema": "aginti.c12880.hardware-validation.v1",
-  "tested_at": "2026-07-22T20:00:00+08:00",
+  "schema": "aginti.c12880.hardware-validation.v2",
+  "tested_at": "2026-07-22T20:52:54+08:00",
   "performance_firmware": {
-    "version": "0.3.0",
-    "bin_sha256": "2481C4558D8C1D4DBE829C3FBCE3D6A688A88C80B56D348CF46FE78F2E54C6BC",
+    "version": "0.3.3",
+    "bin_bytes": 55880,
+    "bin_sha256": "04CD5791F3FB8466891C01A69E5CE4861DCF48B1CC23E22F3A85454038A94500",
     "programmed": true,
     "openocd_verified": true,
-    "target_voltage_v": 3.204,
-    "usb_enumerated": false,
-    "identity_test": "not_run",
-    "frame_test": "not_run",
-    "disposition": "REJECTED_DO_NOT_FLASH",
-    "failure": "USB device did not enumerate; no C12880 COM port was created"
-  },
-  "original_firmware_restore": {
-    "image_bytes": 2097152,
-    "image_sha256": "67F1F6C421D56C2077D5A3F7417AA6F5213A2791D0C63AE5DAFBDBDF461764B4",
-    "programmed": true,
-    "openocd_verified": true,
-    "post_restore_readback_sha256": "67F1F6C421D56C2077D5A3F7417AA6F5213A2791D0C63AE5DAFBDBDF461764B4",
-    "exact_readback_match": true,
+    "target_voltage_v": 3.2192,
     "usb_vid_pid": "0483:5740",
-    "usb_port": "COM3",
+    "usb_port": "COM4",
+    "usb_enumerated": true,
     "identity_valid": true,
+    "identity_ascii": "c12880",
     "correction_bytes": 1024,
     "correction_nonzero_bytes": 1024,
     "frame_bytes": 590,
-    "pixels": 288
+    "pixels": 288,
+    "disposition": "HARDWARE_VALIDATED"
   },
-  "restored_application_validation": {
-    "samples": 30,
-    "all_live": true,
-    "all_fresh": true,
-    "all_288_pixels": true,
-    "sequence_span": 402,
-    "frame_age_max_s": 0.065,
-    "fps_min": 102.692,
-    "fps_max": 103.839,
-    "counts_min": 1397.817,
-    "counts_max": 51074.675,
-    "saturated_pixels_max": 0,
-    "peak_nm_min": 430.627,
-    "peak_nm_max": 435.958,
+  "dma_capture_diagnostics": {
+    "capture_calls": 172,
+    "completed_captures": 172,
+    "failed_captures": 0,
+    "last_stage": "complete",
+    "last_error": 0
+  },
+  "raw_serial_benchmark": [
+    {"exposure_us": 3, "frames": 30, "fps": 1027.48},
+    {"exposure_us": 10, "frames": 30, "fps": 1006.22},
+    {"exposure_us": 100, "frames": 30, "fps": 665.08},
+    {"exposure_us": 1000, "frames": 30, "fps": 164.27},
+    {"exposure_us": 10000, "frames": 30, "fps": 19.53}
+  ],
+  "integrated_application_validation": {
+    "exposure_us": 10,
+    "state": "live",
+    "connected": true,
+    "fps": 464.97,
+    "valid_frames": 8796,
+    "invalid_frames": 0,
+    "sequence_advance_in_500_ms": 288,
+    "frame_age_ms": 9.0,
+    "frame_health": "valid",
+    "pixels": 288,
+    "wavelength_bins": 288,
     "web_http_status": 200,
-    "desktop_gui_started": true
+    "desktop_gui_started": true,
+    "api_command_round_trip": true
+  },
+  "root_cause_and_recovery": {
+    "v0_3_0_failure": "USB initialized the HS core as an embedded full-speed PHY",
+    "hardware_topology": "USB_OTG_HS with external ULPI PHY",
+    "reconstruction_identity_valid": true,
+    "reconstruction_correction_bytes": 1024,
+    "reconstruction_frame_valid": true,
+    "original_image_bytes": 2097152,
+    "original_image_sha256": "67F1F6C421D56C2077D5A3F7417AA6F5213A2791D0C63AE5DAFBDBDF461764B4",
+    "post_restore_exact_readback_match": true
   },
   "safety": {
     "option_bytes_modified": false,
     "external_eeprom_modified": false,
-    "original_firmware_current": true
+    "private_original_published": false,
+    "current_firmware": "performance-0.3.3"
   }
 }

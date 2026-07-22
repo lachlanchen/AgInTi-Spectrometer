@@ -1,6 +1,6 @@
 {
   "schema": "aginti.spectrometer.release.v1",
-  "release": "0.3.0",
+  "release": "0.3.3",
   "components": {
     "desktop_gui": {
       "version": "0.1.0",
@@ -18,11 +18,12 @@
       "source": "firmware/sdk/reconstruction_h743/"
     },
     "firmware_performance": {
-      "version": "0.3.0",
-      "tag": "firmware/performance-v0.3.0",
+      "version": "0.3.3",
+      "tag": "firmware/performance-v0.3.3",
       "source": "firmware/sdk/stm32h7/",
-      "hardware_status": "REJECTED_DO_NOT_FLASH",
-      "validation": "firmware/sdk/HARDWARE-VALIDATION.json"
+      "hardware_status": "HARDWARE_VALIDATED",
+      "validation": "firmware/sdk/HARDWARE-VALIDATION.json",
+      "validation_tag": "validation/performance-v0.3.3-hardware-passed"
     },
     "firmware_coordinator": {
       "version": "0.1.0",
@@ -37,5 +38,5 @@
     "restore_tested": true,
     "post_restore_readback_match": true
   },
-  "suite_tag": "release/firmware-suite-v0.3.0"
+  "suite_tag": "release/firmware-suite-v0.3.3"
 }

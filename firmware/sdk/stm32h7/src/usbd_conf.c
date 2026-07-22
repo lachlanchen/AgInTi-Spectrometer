@@ -4,6 +4,12 @@
 
 PCD_HandleTypeDef hpcd_USB_OTG_HS;
 static uint32_t usb_class_pool[640U];
+volatile uint32_t g_aginti_usb_setup_stage_count;
+volatile uint32_t g_aginti_usb_data_out_stage_count;
+volatile uint32_t g_aginti_usb_data_in_stage_count;
+volatile uint32_t g_aginti_usb_reset_count;
+volatile uint32_t g_aginti_usb_suspend_count;
+volatile uint32_t g_aginti_usb_resume_count;
 
 void *USBD_static_malloc(uint32_t size) {
   return (size <= sizeof(usb_class_pool)) ? usb_class_pool : NULL;
@@ -12,15 +18,25 @@ void USBD_static_free(void *pointer) { (void)pointer; }
 
 void HAL_PCD_MspInit(PCD_HandleTypeDef *pcd) {
   if (pcd->Instance != USB_OTG_HS) return;
+  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   GPIO_InitTypeDef gpio = {0};
-  gpio.Pin = GPIO_PIN_14 | GPIO_PIN_15;
   gpio.Mode = GPIO_MODE_AF_PP;
   gpio.Pull = GPIO_NOPULL;
   gpio.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  gpio.Alternate = GPIO_AF12_OTG2_FS;
+  gpio.Alternate = GPIO_AF10_OTG1_HS;
+
+  gpio.Pin = GPIO_PIN_3 | GPIO_PIN_5;
+  HAL_GPIO_Init(GPIOA, &gpio);
+  gpio.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_5 | GPIO_PIN_10 |
+             GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13;
   HAL_GPIO_Init(GPIOB, &gpio);
+  gpio.Pin = GPIO_PIN_0 | GPIO_PIN_2 | GPIO_PIN_3;
+  HAL_GPIO_Init(GPIOC, &gpio);
+
   __HAL_RCC_USB1_OTG_HS_CLK_ENABLE();
+  __HAL_RCC_USB1_OTG_HS_ULPI_CLK_ENABLE();
   HAL_PWREx_EnableUSBVoltageDetector();
   HAL_NVIC_SetPriority(OTG_HS_IRQn, 5U, 0U);
   HAL_NVIC_EnableIRQ(OTG_HS_IRQn);
@@ -36,9 +52,9 @@ void HAL_PCD_MspDeInit(PCD_HandleTypeDef *pcd) {
 USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *device) {
   hpcd_USB_OTG_HS.Instance = USB_OTG_HS;
   hpcd_USB_OTG_HS.Init.dev_endpoints = 9U;
-  hpcd_USB_OTG_HS.Init.speed = PCD_SPEED_FULL;
+  hpcd_USB_OTG_HS.Init.speed = PCD_SPEED_HIGH;
   hpcd_USB_OTG_HS.Init.dma_enable = DISABLE;
-  hpcd_USB_OTG_HS.Init.phy_itface = USB_OTG_EMBEDDED_PHY;
+  hpcd_USB_OTG_HS.Init.phy_itface = USB_OTG_ULPI_PHY;
   hpcd_USB_OTG_HS.Init.Sof_enable = DISABLE;
   hpcd_USB_OTG_HS.Init.low_power_enable = DISABLE;
   hpcd_USB_OTG_HS.Init.lpm_enable = DISABLE;
@@ -107,27 +123,33 @@ uint32_t USBD_LL_GetRxDataSize(USBD_HandleTypeDef *device, uint8_t address) {
 void USBD_LL_Delay(uint32_t delay) { HAL_Delay(delay); }
 
 void HAL_PCD_SetupStageCallback(PCD_HandleTypeDef *pcd) {
+  ++g_aginti_usb_setup_stage_count;
   USBD_LL_SetupStage((USBD_HandleTypeDef *)pcd->pData,
                      (uint8_t *)(void *)pcd->Setup);
 }
 void HAL_PCD_DataOutStageCallback(PCD_HandleTypeDef *pcd, uint8_t ep) {
+  ++g_aginti_usb_data_out_stage_count;
   USBD_LL_DataOutStage((USBD_HandleTypeDef *)pcd->pData, ep, pcd->OUT_ep[ep].xfer_buff);
 }
 void HAL_PCD_DataInStageCallback(PCD_HandleTypeDef *pcd, uint8_t ep) {
+  ++g_aginti_usb_data_in_stage_count;
   USBD_LL_DataInStage((USBD_HandleTypeDef *)pcd->pData, ep, pcd->IN_ep[ep].xfer_buff);
 }
 void HAL_PCD_SOFCallback(PCD_HandleTypeDef *pcd) {
   USBD_LL_SOF((USBD_HandleTypeDef *)pcd->pData);
 }
 void HAL_PCD_ResetCallback(PCD_HandleTypeDef *pcd) {
+  ++g_aginti_usb_reset_count;
   USBD_SpeedTypeDef speed = USBD_SPEED_FULL;
   USBD_LL_SetSpeed((USBD_HandleTypeDef *)pcd->pData, speed);
   USBD_LL_Reset((USBD_HandleTypeDef *)pcd->pData);
 }
 void HAL_PCD_SuspendCallback(PCD_HandleTypeDef *pcd) {
+  ++g_aginti_usb_suspend_count;
   USBD_LL_Suspend((USBD_HandleTypeDef *)pcd->pData);
 }
 void HAL_PCD_ResumeCallback(PCD_HandleTypeDef *pcd) {
+  ++g_aginti_usb_resume_count;
   USBD_LL_Resume((USBD_HandleTypeDef *)pcd->pData);
 }
 void HAL_PCD_ISOOUTIncompleteCallback(PCD_HandleTypeDef *pcd, uint8_t ep) {

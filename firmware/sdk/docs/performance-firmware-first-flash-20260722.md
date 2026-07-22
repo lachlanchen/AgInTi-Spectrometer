@@ -1,51 +1,60 @@
-# Performance Firmware First-Flash Result
+# Performance Firmware Hardware Validation
 
 ## Decision
 
-Performance firmware `0.3.0` is **rejected for hardware use**. It compiled,
-programmed, and passed OpenOCD byte verification, but its USB device did not
-enumerate. No identity, correction-memory, or spectrum-frame test was possible.
-Do not flash the tagged image until the USB initialization defect is corrected
-and a new version is validated.
+Performance firmware `0.3.3` is **accepted for this controller**. OpenOCD
+programming and byte verification passed, USB enumerated as `0483:5740` on
+`COM4`, and the complete legacy host workflow passed. The tested 55,880-byte
+BIN has SHA-256:
 
-## Safety and recovery evidence
+```text
+04CD5791F3FB8466891C01A69E5CE4861DCF48B1CC23E22F3A85454038A94500
+```
 
-Before programming, two fresh full-flash reads independently matched the known
-original SHA-256:
+## Failure analysis and correction
+
+Version `0.3.0` did not enumerate because it treated the STM32H743 HS USB core
+as an embedded full-speed PHY on `PB14/PB15`. Read-only analysis of the working
+controller showed that this board uses an external ULPI high-speed PHY. Version
+`0.3.3` configures the observed ULPI pins on ports A, B, and C, enables both HS
+and ULPI clocks, uses high-speed PCD mode, and exposes a stable unique USB serial
+descriptor. No external calibration EEPROM write path exists in the firmware.
+
+The direct reconstruction profile then isolated the remaining system layers:
+it returned the eight-byte identity, read all 1,024 nonzero correction bytes,
+and produced a valid 590-byte, 288-pixel frame. The final performance build
+passed the same checks with TIM2/GPIO DMA and ADC DMA enabled.
+
+## Measured capture results
+
+Thirty-frame raw serial runs produced:
+
+| Exposure | Sustained rate |
+|---:|---:|
+| 3 us | 1027.48 fps |
+| 10 us | 1006.22 fps |
+| 100 us | 665.08 fps |
+| 1 ms | 164.27 fps |
+| 10 ms | 19.53 fps |
+
+The SWD diagnostic record reported 172 completed captures and zero failures.
+At fixed 10 us, the integrated desktop GUI, REST API, and web application
+reported 464.97 fps, 8,796 valid frames, zero invalid frames, 9 ms frame age,
+and 288 sequence increments over 500 ms. The web root returned HTTP 200.
+
+These values measure transport and acquisition, not calibrated optical
+accuracy. Per-device wavelength coefficients, radiometry, external triggering,
+the 5 MHz clock ceiling, and long-duration thermal behavior remain separate
+validation tasks.
+
+## Recovery evidence
+
+The private original 2 MiB image remains available locally with SHA-256:
 
 ```text
 67F1F6C421D56C2077D5A3F7417AA6F5213A2791D0C63AE5DAFBDBDF461764B4
 ```
 
-The tested performance BIN was the released 55,136-byte artifact with SHA-256
-`2481C4558D8C1D4DBE829C3FBCE3D6A688A88C80B56D348CF46FE78F2E54C6BC`.
-OpenOCD reported successful programming, verification, and reset. Windows then
-created no STM32 USB device or COM port.
-
-The complete original 2 MiB image was restored and verified. A new full
-post-restore readback exactly matched the original SHA-256 above. Option bytes
-and the external calibration EEPROM were not modified.
-
-## Restored-system acceptance
-
-The original controller returned as `0483:5740` on `COM3`. Spectrum Studio
-validated the eight-byte `c12880` identity, all 1,024 correction bytes, a
-590-byte frame, and 288 pixels. During 30 API samples:
-
-- every frame was live and fresh;
-- sequence advanced by 402;
-- acquisition was approximately 102.7--103.8 fps;
-- maximum frame age was 65 ms;
-- no pixels saturated;
-- desktop GUI and HTTP web application both ran, with HTTP status 200.
-
-These optical values demonstrate transport and visualization plausibility, not
-absolute radiometric or wavelength calibration.
-
-## Debug boundary
-
-The failure occurs before the host protocol. Inspect USB clock selection, PCD
-initialization, endpoint descriptors, interrupt routing, and the HS-controller
-embedded-FS-PHY configuration before changing the capture engine. The DMA
-acquisition path has not yet been exercised on hardware and must not be blamed
-or accepted based on this trial.
+It was previously restored and a complete post-restore readback matched this
+hash exactly. The public repository contains only this hash, never the binary.
+Option bytes and the external calibration EEPROM were not modified.

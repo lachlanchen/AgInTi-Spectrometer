@@ -27,16 +27,17 @@ and an independent dual-H7 light coordinator. The immutable original 2 MiB
 read-back remains private; only its SHA-256 is published. See
 [`RELEASE-MANIFEST.json`](RELEASE-MANIFEST.json) for the component-to-tag map.
 
-> **Firmware status:** performance firmware `0.3.0` is rejected for hardware
-> use because USB enumeration failed during its first-flash trial. The exact
-> original firmware was restored and verified by a full 2 MiB readback. The
-> desktop and web applications are currently validated against that restored
-> original controller. See
+> **Firmware status:** performance firmware `0.3.3` is hardware-validated. The
+> controller enumerates through its external ULPI USB PHY, returns the `c12880`
+> identity and all 1,024 calibration bytes, and delivers valid 590-byte DMA
+> frames. Raw acquisition reached about 1,027 fps at 3 us; the integrated GUI,
+> API, and web path sustained about 465 fps at 10 us with zero invalid frames.
+> The exact original 2 MiB recovery image remains private and hash-verified. See
 > [`HARDWARE-VALIDATION.json`](firmware/sdk/HARDWARE-VALIDATION.json).
 
 ## Verified hardware protocol
 
-The vendor GUI was traced from process startup while displaying a live spectrum. The controller identifies itself by returning `c12880` at 256,000 baud, then uses 1,500,000-baud, 8-N-1 acquisition. A 10 us request is `FF AA 01 00 00 00 32 0D 0A`; each response is exactly 590 bytes: a 12-byte reserved header, 576 bytes for 288 little-endian 16-bit pixels, and a 2-byte trailer. On this workstation the controller is STM32 VCP `0483:5740` on `COM3`; the CH343 on `COM5` is unrelated.
+The vendor GUI was traced from process startup while displaying a live spectrum. The controller identifies itself by returning `c12880` at 256,000 baud, then uses 1,500,000-baud, 8-N-1 acquisition. A 10 us request is `FF AA 01 00 00 00 32 0D 0A`; each response is exactly 590 bytes: a 12-byte reserved header, 576 bytes for 288 little-endian 16-bit pixels, and a 2-byte trailer. The validated performance controller currently enumerates as STM32 VCP `0483:5740` on `COM4`; always probe the identity instead of hard-coding the port.
 
 The application also reproduces the vendor startup correction-memory request (`FF 09`), exposure updates, software/external trigger modes, and OUT2/OUT3 mask.
 

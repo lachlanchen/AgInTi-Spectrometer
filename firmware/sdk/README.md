@@ -7,8 +7,10 @@ vendor pseudocode.
 
 ## Safety status
 
-The project currently has **compile validation only**. It has not been flashed
-to the controller. Before any first flash, preserve all of the following:
+Performance firmware `0.3.3` is hardware-validated on the target controller.
+The reconstruction image also passed identity, calibration-memory, and frame
+tests. The coordinator remains compile-validated only. Before programming a
+different controller, preserve all of the following:
 
 - the existing 2 MiB internal-flash image;
 - external EEPROM calibration bytes, including `0x0000..0x0fff` and the area
@@ -30,9 +32,11 @@ The exact 2 MiB vendor read-back remains private and ignored. Its public
 SHA-256 is recorded in `BUILD-MANIFEST.json`. Build all three source images
 without touching hardware with `./scripts/build_c12880_firmware_suite.ps1`.
 
-> **Hardware warning (2026-07-22):** performance firmware `0.3.0` programs and
-> verifies but fails USB enumeration. Do not flash it. The original firmware
-> was restored and its full 2 MiB readback matched exactly. See
+> **Hardware result (2026-07-22):** version `0.3.0` failed because it assumed
+> the embedded full-speed PHY. Version `0.3.3` configures the board's external
+> ULPI PHY and passed USB, identity, EEPROM, DMA-frame, GUI, API, and web tests.
+> The original firmware was also restored and matched by a full 2 MiB readback.
+> See
 > `HARDWARE-VALIDATION.json` and
 > `docs/performance-firmware-first-flash-20260722.md`.
 
@@ -46,7 +50,7 @@ without touching hardware with `./scripts/build_c12880_firmware_suite.ps1`.
 | External trigger | `PE9 / EXTI9_5` |
 | Output/mode bits | `PE13`, `PE14` |
 | Calibration EEPROM | software I2C on `PB6/PB7`, address `0xA0` |
-| USB device | `USB_OTG_HS` core with embedded full-speed PHY on `PB14/PB15` |
+| USB device | `USB_OTG_HS` with external ULPI PHY: `PA3/PA5`, `PB0/PB1/PB5/PB10-PB13`, `PC0/PC2/PC3` |
 
 ## Design
 
@@ -118,8 +122,9 @@ the calibration workflow are documented in `docs/dual-h7-control.md`.
 
 ## Current validation boundary
 
-Compilation establishes source and link consistency. It does not establish
-signal polarity, EEPROM timing, analog settling, ADC phase, optical calibration,
-USB throughput, or hardware stability. The staged first-flash and oscilloscope
-checks are specified in `docs/architecture.md` and the Chinese monograph under
-`publications/c12880_firmware_sdk/`.
+On-device testing establishes USB enumeration, identity, read-only EEPROM
+access, 288-pixel DMA capture, legacy framing, and host integration from 3 us
+through 10 ms. It does not establish absolute radiometric accuracy, per-device
+wavelength calibration, the advertised 5 MHz ceiling, external triggering, or
+long-duration thermal stability. Those checks remain in `docs/architecture.md`
+and the Chinese monograph under `publications/c12880_firmware_sdk/`.

@@ -20,7 +20,7 @@ USBD_DescriptorsTypeDef AGINTI_Desc = {
 __ALIGN_BEGIN static uint8_t device_desc[USB_LEN_DEV_DESC] __ALIGN_END = {
     0x12U, USB_DESC_TYPE_DEVICE, 0x00U, 0x02U, 0x02U, 0x02U, 0x00U,
     USB_MAX_EP0_SIZE, LOBYTE(USBD_VID), HIBYTE(USBD_VID),
-    LOBYTE(USBD_PID), HIBYTE(USBD_PID), 0x00U, 0x02U,
+    LOBYTE(USBD_PID), HIBYTE(USBD_PID), 0x01U, 0x03U,
     USBD_IDX_MFC_STR, USBD_IDX_PRODUCT_STR, USBD_IDX_SERIAL_STR, 0x01U};
 __ALIGN_BEGIN static uint8_t lang_desc[USB_LEN_LANGID_STR_DESC] __ALIGN_END = {
     USB_LEN_LANGID_STR_DESC, USB_DESC_TYPE_STRING,
@@ -60,11 +60,15 @@ static uint8_t *interface_descriptor(USBD_SpeedTypeDef speed, uint16_t *length) 
 }
 static uint8_t *serial_descriptor(USBD_SpeedTypeDef speed, uint16_t *length) {
   (void)speed;
-  uint32_t serial0 = HAL_GetUIDw0() + HAL_GetUIDw2();
+  const uint32_t serial0 = HAL_GetUIDw0() + HAL_GetUIDw2();
   const uint32_t serial1 = HAL_GetUIDw1();
-  if (serial0 != 0U) {
-    hex_string(serial0, &serial_desc[2], 8U);
-    hex_string(serial1, &serial_desc[18], 4U);
-  }
+  /* Keep a stable instance while avoiding Windows reusing the vendor
+     firmware's cached CDC configuration for this clean-room implementation. */
+  serial_desc[2] = (uint8_t)'A';
+  serial_desc[3] = 0U;
+  serial_desc[4] = (uint8_t)'3';
+  serial_desc[5] = 0U;
+  hex_string(serial0, &serial_desc[6], 8U);
+  hex_string(serial1, &serial_desc[22], 2U);
   *length = sizeof(serial_desc); return serial_desc;
 }

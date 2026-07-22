@@ -24,6 +24,33 @@ static DMA_HandleTypeDef hdma_clk_set;
 static DMA_HandleTypeDef hdma_clk_reset;
 static uint32_t timer_input_hz;
 static uint32_t active_sensor_clock_hz;
+typedef struct {
+  uint32_t magic;
+  uint32_t capture_calls;
+  uint32_t completed_captures;
+  uint32_t failed_captures;
+  uint32_t stage;
+  uint32_t error;
+  uint32_t requested_cycles;
+  uint32_t set_state;
+  uint32_t reset_state;
+  uint32_t adc_state;
+  uint32_t set_error;
+  uint32_t reset_error;
+  uint32_t adc_error;
+  uint32_t set_cr;
+  uint32_t reset_cr;
+  uint32_t adc_cr;
+  uint32_t set_ndtr;
+  uint32_t reset_ndtr;
+  uint32_t adc_ndtr;
+  uint32_t timer_dier;
+  uint32_t timer_sr;
+} c12880_capture_diag_t;
+
+volatile c12880_capture_diag_t g_c12880_capture_diag = {
+    .magic = 0x43415044U,
+};
 __attribute__((section(".dma_buffer"), aligned(32)))
 static uint32_t clk_set_word = (uint32_t)C12880_CLK_PIN;
 __attribute__((section(".dma_buffer"), aligned(32)))
@@ -345,12 +372,17 @@ static bool timer_set_frequency(uint32_t sensor_clock_hz) {
 
 static bool dma_run_clock_block(uint16_t cycles) {
   if (cycles == 0U) return true;
+  g_c12880_capture_diag.stage = 0x20U;
+  g_c12880_capture_diag.requested_cycles = cycles;
   gpio_reset(C12880_CLK_PORT, C12880_CLK_PIN);
   if (HAL_DMA_Start(&hdma_clk_set, (uint32_t)&clk_set_word,
-                    (uint32_t)&C12880_CLK_PORT->BSRR, cycles) != HAL_OK)
+                    (uint32_t)&C12880_CLK_PORT->BSRR, cycles) != HAL_OK) {
+    g_c12880_capture_diag.error = 2U;
     return false;
+  }
   if (HAL_DMA_Start(&hdma_clk_reset, (uint32_t)&clk_reset_word,
                     (uint32_t)&C12880_CLK_PORT->BSRR, cycles) != HAL_OK) {
+    g_c12880_capture_diag.error = 3U;
     (void)HAL_DMA_Abort(&hdma_clk_set);
     return false;
   }
@@ -366,12 +398,23 @@ static bool dma_run_clock_block(uint16_t cycles) {
   const uint32_t start = DWT->CYCCNT;
   while (((DMA1_Stream2->CR & DMA_SxCR_EN) != 0U) &&
          ((uint32_t)(DWT->CYCCNT - start) < deadline)) {}
+  g_c12880_capture_diag.set_cr = DMA1_Stream1->CR;
+  g_c12880_capture_diag.reset_cr = DMA1_Stream2->CR;
+  g_c12880_capture_diag.set_ndtr = DMA1_Stream1->NDTR;
+  g_c12880_capture_diag.reset_ndtr = DMA1_Stream2->NDTR;
+  g_c12880_capture_diag.timer_dier = TIM2->DIER;
+  g_c12880_capture_diag.timer_sr = TIM2->SR;
   TIM2->CR1 &= ~TIM_CR1_CEN;
   TIM2->DIER &= ~(TIM_DIER_UDE | TIM_DIER_CC1DE);
   gpio_reset(C12880_CLK_PORT, C12880_CLK_PIN);
   const bool complete = (DMA1_Stream2->CR & DMA_SxCR_EN) == 0U;
+  if (!complete) g_c12880_capture_diag.error = 4U;
   (void)HAL_DMA_Abort(&hdma_clk_set);
   (void)HAL_DMA_Abort(&hdma_clk_reset);
+  g_c12880_capture_diag.set_state = HAL_DMA_GetState(&hdma_clk_set);
+  g_c12880_capture_diag.reset_state = HAL_DMA_GetState(&hdma_clk_reset);
+  g_c12880_capture_diag.set_error = HAL_DMA_GetError(&hdma_clk_set);
+  g_c12880_capture_diag.reset_error = HAL_DMA_GetError(&hdma_clk_reset);
   return complete;
 }
 
@@ -388,31 +431,68 @@ static bool dma_run_clocks(uint32_t cycles) {
 static bool dma_capture(uint16_t *raw,
                         const aginti_c12880_config_t *config,
                         uint32_t *status) {
-  if (!timer_set_frequency(config->sensor_clock_hz)) return false;
-  if (!dma_run_clocks(C12880_PRE_CLOCKS)) return false;
+  ++g_c12880_capture_diag.capture_calls;
+  g_c12880_capture_diag.stage = 1U;
+  g_c12880_capture_diag.error = 0U;
+  if (!timer_set_frequency(config->sensor_clock_hz)) {
+    g_c12880_capture_diag.error = 1U;
+    goto failed;
+  }
+  g_c12880_capture_diag.stage = 2U;
+  if (!dma_run_clocks(C12880_PRE_CLOCKS)) {
+    if (g_c12880_capture_diag.error == 0U) g_c12880_capture_diag.error = 5U;
+    goto failed;
+  }
   gpio_set(C12880_ST_PORT, C12880_ST_PIN);
-  if (!dma_run_clocks(config->exposure_clocks)) return false;
+  g_c12880_capture_diag.stage = 3U;
+  if (!dma_run_clocks(config->exposure_clocks)) {
+    if (g_c12880_capture_diag.error == 0U) g_c12880_capture_diag.error = 6U;
+    goto failed;
+  }
   gpio_reset(C12880_ST_PORT, C12880_ST_PIN);
-  if (!dma_run_clocks(C12880_DUMMY_CLOCKS_DMA)) return false;
+  g_c12880_capture_diag.stage = 4U;
+  if (!dma_run_clocks(C12880_DUMMY_CLOCKS_DMA)) {
+    if (g_c12880_capture_diag.error == 0U) g_c12880_capture_diag.error = 7U;
+    goto failed;
+  }
 
+  g_c12880_capture_diag.stage = 5U;
   if (HAL_ADC_Start_DMA(&hadc1, (uint32_t *)raw,
-                        AGINTI_C12880_RAW_SAMPLES) != HAL_OK) return false;
+                        AGINTI_C12880_RAW_SAMPLES) != HAL_OK) {
+    g_c12880_capture_diag.error = 8U;
+    goto failed;
+  }
+  g_c12880_capture_diag.stage = 6U;
   const bool clocks_ok = dma_run_clocks(AGINTI_C12880_RAW_SAMPLES);
+  g_c12880_capture_diag.stage = 7U;
   const uint32_t start = DWT->CYCCNT;
   while ((HAL_DMA_GetState(&hdma_adc1) != HAL_DMA_STATE_READY) &&
          ((uint32_t)(DWT->CYCCNT - start) < (SystemCoreClock / 100U))) {}
   const bool adc_ok = HAL_DMA_GetState(&hdma_adc1) == HAL_DMA_STATE_READY;
+  g_c12880_capture_diag.adc_state = HAL_DMA_GetState(&hdma_adc1);
+  g_c12880_capture_diag.adc_error = HAL_DMA_GetError(&hdma_adc1);
+  g_c12880_capture_diag.adc_cr = DMA1_Stream0->CR;
+  g_c12880_capture_diag.adc_ndtr = DMA1_Stream0->NDTR;
   (void)HAL_ADC_Stop_DMA(&hadc1);
   if (__HAL_ADC_GET_FLAG(&hadc1, ADC_FLAG_OVR) != 0U) {
     *status |= AGINTI_STATUS_ADC_OVERRUN;
     __HAL_ADC_CLEAR_FLAG(&hadc1, ADC_FLAG_OVR);
   }
   if (!clocks_ok || !adc_ok) {
+    g_c12880_capture_diag.error = clocks_ok ? 10U : 9U;
     *status |= AGINTI_STATUS_CAPTURE_TIMEOUT;
-    return false;
+    goto failed;
   }
   *status |= AGINTI_STATUS_ENGINE_DMA;
+  g_c12880_capture_diag.stage = 0x100U;
+  ++g_c12880_capture_diag.completed_captures;
   return true;
+
+failed:
+  gpio_reset(C12880_ST_PORT, C12880_ST_PIN);
+  gpio_reset(C12880_CLK_PORT, C12880_CLK_PIN);
+  ++g_c12880_capture_diag.failed_captures;
+  return false;
 }
 #endif
 
