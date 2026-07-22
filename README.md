@@ -27,19 +27,24 @@ and an independent dual-H7 light coordinator. The immutable original 2 MiB
 read-back remains private; only its SHA-256 is published. See
 [`RELEASE-MANIFEST.json`](RELEASE-MANIFEST.json) for the component-to-tag map.
 
-> **Firmware status:** performance firmware `0.3.3` is hardware-validated. The
-> controller enumerates through its external ULPI USB PHY, returns the `c12880`
-> identity and all 1,024 calibration bytes, and delivers valid 590-byte DMA
-> frames. Raw acquisition reached about 1,027 fps at 3 us; the integrated GUI,
-> API, and web path sustained about 465 fps at 10 us with zero invalid frames.
-> The exact original 2 MiB recovery image remains private and hash-verified. See
+> **Firmware status:** the private original firmware is installed and
+> optically validated. Performance firmware `0.3.3` passed USB, identity,
+> EEPROM, framing, and throughput tests, but failed optical validation by
+> returning an almost flat ADC baseline. Its historical tags are retained but
+> are superseded by the corrected disposition in
 > [`HARDWARE-VALIDATION.json`](firmware/sdk/HARDWARE-VALIDATION.json).
+> Experimental `0.3.4` source reconstructs the vendor ADC timing and tail-bin
+> policy; it is not a released replacement for the original firmware.
 
 ## Verified hardware protocol
 
 The vendor GUI was traced from process startup while displaying a live spectrum. The controller identifies itself by returning `c12880` at 256,000 baud, then uses 1,500,000-baud, 8-N-1 acquisition. A 10 us request is `FF AA 01 00 00 00 32 0D 0A`; each response is exactly 590 bytes: a 12-byte reserved header, 576 bytes for 288 little-endian 16-bit pixels, and a 2-byte trailer. The validated performance controller currently enumerates as STM32 VCP `0483:5740` on `COM4`; always probe the identity instead of hard-coding the port.
 
 The application also reproduces the vendor startup correction-memory request (`FF 09`), exposure updates, software/external trigger modes, and OUT2/OUT3 mask.
+The plotted x-axis is a nominal 340-850 nm mapping until the individual
+Hamamatsu test-sheet coefficients are installed. Y values are relative detector
+counts, not calibrated spectral irradiance. Capture a dark reference for
+background subtraction before quantitative comparisons.
 
 ## Run
 
@@ -66,6 +71,12 @@ uv run spectrum-studio --demo
 The GUI starts a thread-safe control API at `http://127.0.0.1:8766`. Bind with
 `--api-host 0.0.0.0` only when a trusted LAN agent must reach it. GUI, CLI, and
 HTTP commands share the same validated control actions.
+
+Acquisition and rendering are intentionally decoupled. The GUI renders at
+30 Hz while the acquisition card reports hardware frames per second. The
+spectrum API publishes `raw_counts`, unsmoothed `processed_counts`, and
+display-only `display_counts` separately so filtering cannot silently change
+recorded science data.
 
 ```powershell
 uv run spectrum-studio ctl status

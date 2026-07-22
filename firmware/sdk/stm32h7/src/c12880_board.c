@@ -9,9 +9,13 @@
 #define AGINTI_PERFORMANCE_ADC 0
 #endif
 
-#define C12880_PRE_CLOCKS 12U
-#define C12880_DUMMY_CLOCKS_DIRECT 91U
+#define C12880_PRE_CLOCKS 8U
+#define C12880_ST_LEAD_CLOCKS 4U
+#define C12880_DUMMY_CLOCKS_DIRECT 90U
 #define C12880_DUMMY_CLOCKS_DMA 90U
+#define C12880_TAIL_REFERENCE_RAW_INDEX 278U
+#define C12880_TAIL_REPAIR_FIRST_RAW_INDEX 285U
+#define C12880_TAIL_REPAIR_LAST_RAW_INDEX 288U
 #define EEPROM_DEVICE_WRITE_ADDRESS 0xA0U
 #define EEPROM_DEVICE_READ_ADDRESS 0xA1U
 #define EEPROM_HALF_PERIOD_CYCLES (SystemCoreClock / 200000U)
@@ -52,9 +56,9 @@ volatile c12880_capture_diag_t g_c12880_capture_diag = {
     .magic = 0x43415044U,
 };
 __attribute__((section(".dma_buffer"), aligned(32)))
-static uint32_t clk_set_word = (uint32_t)C12880_CLK_PIN;
+static uint32_t clk_set_word = ((uint32_t)C12880_CLK_PIN << 16);
 __attribute__((section(".dma_buffer"), aligned(32)))
-static uint32_t clk_reset_word = ((uint32_t)C12880_CLK_PIN << 16);
+static uint32_t clk_reset_word = (uint32_t)C12880_CLK_PIN;
 #endif
 static volatile bool external_trigger_pending;
 
@@ -131,14 +135,17 @@ bool board_clock_config(void) {
   peripheral.PeriphClockSelection = RCC_PERIPHCLK_USB | RCC_PERIPHCLK_ADC;
   peripheral.UsbClockSelection = RCC_USBCLKSOURCE_HSI48;
   peripheral.AdcClockSelection = RCC_ADCCLKSOURCE_PLL2;
-  peripheral.PLL2.PLL2M = 5U;
-  peripheral.PLL2.PLL2N = 40U;
-  peripheral.PLL2.PLL2P = 2U;
-  peripheral.PLL2.PLL2Q = 4U;
-  peripheral.PLL2.PLL2R = 4U;
-  peripheral.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_2;
+  /* Match the known-good controller's ADC kernel clock: the 25 MHz HSE is
+   * divided by 25, multiplied by 504.75, then divided by PLL2P=7 and the
+   * ADC's asynchronous /2 prescaler (about 36.05 MHz at ADC1). */
+  peripheral.PLL2.PLL2M = 25U;
+  peripheral.PLL2.PLL2N = 504U;
+  peripheral.PLL2.PLL2P = 7U;
+  peripheral.PLL2.PLL2Q = 2U;
+  peripheral.PLL2.PLL2R = 2U;
+  peripheral.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_0;
   peripheral.PLL2.PLL2VCOSEL = RCC_PLL2VCOWIDE;
-  peripheral.PLL2.PLL2FRACN = 0U;
+  peripheral.PLL2.PLL2FRACN = 6144U;
   if (HAL_RCCEx_PeriphCLKConfig(&peripheral) != HAL_OK) return false;
 
   SystemCoreClockUpdate();
@@ -154,10 +161,14 @@ static void gpio_init(void) {
 
   GPIO_InitTypeDef gpio = {0};
   gpio.Pin = C12880_ST_PIN | C12880_CLK_PIN |
+             C12880_FRONTEND_GATE_PIN | C12880_FRONTEND_CLOCK_PIN |
+             C12880_FRONTEND_ENABLE_PIN |
              C12880_MODE0_PIN | C12880_MODE1_PIN;
   gpio.Mode = GPIO_MODE_OUTPUT_PP;
   gpio.Pull = GPIO_NOPULL;
-  gpio.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  /* The vendor controller deliberately uses low slew on the sensor lines.
+   * Faster GPIO edges can ring on the module wiring and create extra clocks. */
+  gpio.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &gpio);
 
   gpio.Pin = C12880_TRIGGER_PIN;
@@ -202,16 +213,17 @@ static bool adc_dma_init(void) {
   __HAL_LINKDMA(&hadc1, DMA_Handle, hdma_adc1);
 
   hadc1.Instance = ADC1;
-#if AGINTI_PERFORMANCE_ADC
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
-#else
   hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV2;
-#endif
   hadc1.Init.Resolution = ADC_RESOLUTION_16B;
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   hadc1.Init.LowPowerAutoWait = DISABLE;
+#if AGINTI_CAPTURE_DMA
   hadc1.Init.ContinuousConvMode = DISABLE;
+#else
+  /* The vendor firmware free-runs ADC1 while each pixel is clocked out. */
+  hadc1.Init.ContinuousConvMode = ENABLE;
+#endif
   hadc1.Init.NbrOfConversion = 1U;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
 #if AGINTI_CAPTURE_DMA
@@ -223,7 +235,11 @@ static bool adc_dma_init(void) {
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.ConversionDataManagement = ADC_CONVERSIONDATA_DR;
 #endif
+#if AGINTI_CAPTURE_DMA
   hadc1.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
+#else
+  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+#endif
   hadc1.Init.LeftBitShift = ADC_LEFTBITSHIFT_NONE;
   hadc1.Init.OversamplingMode = DISABLE;
   if (HAL_ADC_Init(&hadc1) != HAL_OK) return false;
@@ -231,11 +247,7 @@ static bool adc_dma_init(void) {
   ADC_ChannelConfTypeDef channel = {0};
   channel.Channel = ADC_CHANNEL_16;
   channel.Rank = ADC_REGULAR_RANK_1;
-#if AGINTI_PERFORMANCE_ADC
-  channel.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
-#else
   channel.SamplingTime = ADC_SAMPLETIME_16CYCLES_5;
-#endif
   channel.SingleDiff = ADC_SINGLE_ENDED;
   channel.OffsetNumber = ADC_OFFSET_NONE;
   channel.Offset = 0U;
@@ -308,6 +320,7 @@ bool board_peripherals_init(void) {
   DWT->CYCCNT = 0U;
   DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
   gpio_init();
+  gpio_set(C12880_CLK_PORT, C12880_CLK_PIN);
   if (!adc_dma_init()) return false;
 #if AGINTI_CAPTURE_DMA
   if (!timer_dma_init()) return false;
@@ -322,13 +335,35 @@ static void set_output_mode(uint8_t mode) {
   else gpio_reset(C12880_MODE_PORT, C12880_MODE1_PIN);
 }
 
+static void frontend_prepare(void) {
+  gpio_reset(C12880_FRONTEND_GATE_PORT, C12880_FRONTEND_GATE_PIN);
+  gpio_set(C12880_ST_PORT, C12880_ST_PIN);
+  for (uint32_t pulse = 0; pulse < 4U; ++pulse) {
+    for (uint32_t hold = 0; hold < 4U; ++hold)
+      gpio_set(C12880_FRONTEND_CLOCK_PORT, C12880_FRONTEND_CLOCK_PIN);
+    for (uint32_t hold = 0; hold < 4U; ++hold)
+      gpio_reset(C12880_FRONTEND_CLOCK_PORT, C12880_FRONTEND_CLOCK_PIN);
+  }
+  gpio_set(C12880_FRONTEND_GATE_PORT, C12880_FRONTEND_GATE_PIN);
+  gpio_reset(C12880_ST_PORT, C12880_ST_PIN);
+}
+
 #if !AGINTI_CAPTURE_DMA
 static void direct_clock(uint32_t sensor_clock_hz) {
   const uint32_t half = SystemCoreClock / (sensor_clock_hz * 2U);
-  gpio_set(C12880_CLK_PORT, C12880_CLK_PIN);
-  dwt_delay(half);
   gpio_reset(C12880_CLK_PORT, C12880_CLK_PIN);
   dwt_delay(half);
+  gpio_set(C12880_CLK_PORT, C12880_CLK_PIN);
+  dwt_delay(half);
+}
+
+static void direct_readout_clock(uint32_t sensor_clock_hz) {
+  const uint32_t low_cycles = SystemCoreClock / (sensor_clock_hz * 2U);
+  gpio_reset(C12880_CLK_PORT, C12880_CLK_PIN);
+  dwt_delay(low_cycles);
+  /* Match the vendor pixel loop: return immediately after the rising edge so
+   * the continuous ADC result is consumed before the video output advances. */
+  gpio_set(C12880_CLK_PORT, C12880_CLK_PIN);
 }
 
 static bool direct_capture(uint16_t *raw,
@@ -337,21 +372,42 @@ static bool direct_capture(uint16_t *raw,
   for (uint32_t i = 0; i < C12880_PRE_CLOCKS; ++i)
     direct_clock(config->sensor_clock_hz);
   gpio_set(C12880_ST_PORT, C12880_ST_PIN);
+  for (uint32_t i = 0; i < C12880_ST_LEAD_CLOCKS; ++i)
+    direct_clock(config->sensor_clock_hz);
   for (uint32_t i = 0; i < config->exposure_clocks; ++i)
     direct_clock(config->sensor_clock_hz);
   gpio_reset(C12880_ST_PORT, C12880_ST_PIN);
   for (uint32_t i = 0; i < C12880_DUMMY_CLOCKS_DIRECT; ++i)
     direct_clock(config->sensor_clock_hz);
+
+  /* Vendor-equivalent readout: start continuous ADC once, advance one clock,
+   * then read a conversion before each subsequent sensor clock. */
+  if (HAL_ADC_Start(&hadc1) != HAL_OK) {
+    *status |= AGINTI_STATUS_CAPTURE_TIMEOUT;
+    return false;
+  }
+  direct_readout_clock(config->sensor_clock_hz);
   for (uint32_t i = 0; i < AGINTI_C12880_RAW_SAMPLES; ++i) {
-    if ((HAL_ADC_Start(&hadc1) != HAL_OK) ||
-        (HAL_ADC_PollForConversion(&hadc1, 2U) != HAL_OK)) {
+    if (HAL_ADC_PollForConversion(&hadc1, 1U) != HAL_OK) {
       *status |= AGINTI_STATUS_CAPTURE_TIMEOUT;
+      (void)HAL_ADC_Stop(&hadc1);
       return false;
     }
     raw[i] = (uint16_t)HAL_ADC_GetValue(&hadc1);
-    (void)HAL_ADC_Stop(&hadc1);
-    direct_clock(config->sensor_clock_hz);
+    direct_readout_clock(config->sensor_clock_hz);
   }
+  (void)HAL_ADC_Stop(&hadc1);
+  /* The original controller replaces buffer words 291..294 with word 284.
+   * In this zero-based raw array (vendor words 6..299), those are 285..288
+   * and reference 278. The physical video output is already in line return
+   * there, so forwarding it would create a false near-IR spike. */
+  const uint16_t tail_reference = raw[C12880_TAIL_REFERENCE_RAW_INDEX];
+  for (uint32_t i = C12880_TAIL_REPAIR_FIRST_RAW_INDEX;
+       i <= C12880_TAIL_REPAIR_LAST_RAW_INDEX; ++i) {
+    raw[i] = tail_reference;
+  }
+  gpio_set(C12880_ST_PORT, C12880_ST_PIN);
+  gpio_reset(C12880_ST_PORT, C12880_ST_PIN);
   *status |= AGINTI_STATUS_ENGINE_DIRECT;
   return true;
 }
@@ -374,7 +430,7 @@ static bool dma_run_clock_block(uint16_t cycles) {
   if (cycles == 0U) return true;
   g_c12880_capture_diag.stage = 0x20U;
   g_c12880_capture_diag.requested_cycles = cycles;
-  gpio_reset(C12880_CLK_PORT, C12880_CLK_PIN);
+  gpio_set(C12880_CLK_PORT, C12880_CLK_PIN);
   if (HAL_DMA_Start(&hdma_clk_set, (uint32_t)&clk_set_word,
                     (uint32_t)&C12880_CLK_PORT->BSRR, cycles) != HAL_OK) {
     g_c12880_capture_diag.error = 2U;
@@ -406,7 +462,7 @@ static bool dma_run_clock_block(uint16_t cycles) {
   g_c12880_capture_diag.timer_sr = TIM2->SR;
   TIM2->CR1 &= ~TIM_CR1_CEN;
   TIM2->DIER &= ~(TIM_DIER_UDE | TIM_DIER_CC1DE);
-  gpio_reset(C12880_CLK_PORT, C12880_CLK_PIN);
+  gpio_set(C12880_CLK_PORT, C12880_CLK_PIN);
   const bool complete = (DMA1_Stream2->CR & DMA_SxCR_EN) == 0U;
   if (!complete) g_c12880_capture_diag.error = 4U;
   (void)HAL_DMA_Abort(&hdma_clk_set);
@@ -444,6 +500,11 @@ static bool dma_capture(uint16_t *raw,
     goto failed;
   }
   gpio_set(C12880_ST_PORT, C12880_ST_PIN);
+  g_c12880_capture_diag.stage = 0x30U;
+  if (!dma_run_clocks(C12880_ST_LEAD_CLOCKS)) {
+    if (g_c12880_capture_diag.error == 0U) g_c12880_capture_diag.error = 6U;
+    goto failed;
+  }
   g_c12880_capture_diag.stage = 3U;
   if (!dma_run_clocks(config->exposure_clocks)) {
     if (g_c12880_capture_diag.error == 0U) g_c12880_capture_diag.error = 6U;
@@ -490,7 +551,7 @@ static bool dma_capture(uint16_t *raw,
 
 failed:
   gpio_reset(C12880_ST_PORT, C12880_ST_PIN);
-  gpio_reset(C12880_CLK_PORT, C12880_CLK_PIN);
+  gpio_set(C12880_CLK_PORT, C12880_CLK_PIN);
   ++g_c12880_capture_diag.failed_captures;
   return false;
 }
@@ -503,6 +564,15 @@ aginti_capture_start_result_t board_capture(
   if ((raw == NULL) || (config == NULL) || (status == NULL))
     return AGINTI_CAPTURE_ERROR;
   set_output_mode(config->output_mode);
+  static bool frontend_initialized;
+  if (!frontend_initialized) {
+    frontend_prepare();
+    frontend_initialized = true;
+  }
+  /* The known-good vendor runtime leaves PE4/PE5/PE6 low during capture. */
+  gpio_reset(C12880_FRONTEND_GATE_PORT, C12880_FRONTEND_GATE_PIN);
+  gpio_reset(C12880_FRONTEND_CLOCK_PORT, C12880_FRONTEND_CLOCK_PIN);
+  gpio_reset(C12880_FRONTEND_ENABLE_PORT, C12880_FRONTEND_ENABLE_PIN);
 #if AGINTI_CAPTURE_DMA
   return dma_capture(raw, config, status) ? AGINTI_CAPTURE_COMPLETE
                                            : AGINTI_CAPTURE_ERROR;
@@ -522,7 +592,7 @@ void board_capture_abort(void *context) {
   (void)HAL_ADC_Stop(&hadc1);
 #endif
   gpio_reset(C12880_ST_PORT, C12880_ST_PIN);
-  gpio_reset(C12880_CLK_PORT, C12880_CLK_PIN);
+  gpio_set(C12880_CLK_PORT, C12880_CLK_PIN);
 }
 
 uint64_t board_time_us(void *context) {
@@ -602,7 +672,10 @@ bool board_eeprom_read(uint16_t address, uint8_t *data, size_t bytes) {
 
 void board_safe_outputs(void) {
   gpio_reset(C12880_ST_PORT, C12880_ST_PIN);
-  gpio_reset(C12880_CLK_PORT, C12880_CLK_PIN);
+  gpio_set(C12880_CLK_PORT, C12880_CLK_PIN);
+  gpio_set(C12880_FRONTEND_GATE_PORT, C12880_FRONTEND_GATE_PIN);
+  gpio_reset(C12880_FRONTEND_CLOCK_PORT, C12880_FRONTEND_CLOCK_PIN);
+  gpio_reset(C12880_FRONTEND_ENABLE_PORT, C12880_FRONTEND_ENABLE_PIN);
   gpio_reset(C12880_MODE_PORT, C12880_MODE0_PIN | C12880_MODE1_PIN);
 }
 

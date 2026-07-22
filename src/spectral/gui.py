@@ -117,6 +117,17 @@ class AcquisitionWorker(QtCore.QObject):
         try:
             descriptor = self.device.connect()
             diagnostics = self.device.diagnostic_report()
+            correction_words = self.device.correction_words[:288].astype(
+                np.float64, copy=False
+            )
+            correction_factors = np.ones(288, dtype=np.float64)
+            correction_loaded = correction_words.size == 288
+            if correction_loaded:
+                candidate = correction_words / 10_000.0
+                if np.all(np.isfinite(candidate)) and np.all(candidate > 0.0):
+                    correction_factors = candidate
+                else:
+                    correction_loaded = False
             self.status.emit({
                 "state": "connected",
                 "message": (
@@ -128,6 +139,8 @@ class AcquisitionWorker(QtCore.QObject):
                 "valid": valid,
                 "invalid": invalid,
                 "fps": 0.0,
+                "correction_factors": correction_factors.tolist(),
+                "correction_loaded": correction_loaded,
             })
             while not self.stop_event.is_set():
                 exposure_ms, averaging, trigger_mode, output_mask = self.controls.snapshot()
@@ -245,6 +258,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.valid_frames = 0
         self.invalid_frames = 0
         self.dark_reference: np.ndarray | None = None
+        self.pixel_correction: np.ndarray | None = None
+        self.pixel_correction_loaded = False
         self.y_floor = 0.0
         self.y_ceiling = 1.0
         self.setWindowTitle("AgInTi Spectrum Studio")
@@ -285,7 +300,9 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         brand = QtWidgets.QVBoxLayout()
         title = QtWidgets.QLabel("SPECTRUM STUDIO")
         title.setObjectName("brandTitle")
-        subtitle = QtWidgets.QLabel("C12880MA / 288 pixels / acquisition decoupled from rendering")
+        subtitle = QtWidgets.QLabel(
+            "C12880MA / 288 pixels / raw acquisition / independent 30 Hz view"
+        )
         subtitle.setObjectName("brandSubtitle")
         brand.addWidget(title)
         brand.addWidget(subtitle)
@@ -309,8 +326,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         plot_layout = QtWidgets.QVBoxLayout(plot_panel)
         plot_layout.setContentsMargins(16, 16, 16, 12)
         self.plot = pg.PlotWidget(background="#fffdf8")
-        self.plot.setLabel("bottom", "Wavelength", units="nm")
-        self.plot.setLabel("left", "ADC counts")
+        self.plot.setLabel("bottom", "Nominal wavelength", units="nm")
+        self.plot.setLabel("left", "Detector signal", units="counts")
         self.plot.showGrid(x=True, y=True, alpha=0.18)
         self.plot.setXRange(340, 850, padding=0)
         self.plot.setMouseEnabled(x=True, y=False)
@@ -391,7 +408,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         cards = QtWidgets.QGridLayout()
         cards.setSpacing(9)
         self.peak_card = MetricCard("Peak", "-- nm", "#007f76")
-        self.signal_card = MetricCard("Peak signal", "--", "#d64f32")
+        self.signal_card = MetricCard("Peak detector count", "--", "#d64f32")
         self.integral_card = MetricCard("Integral", "--", "#2d5d80")
         self.rate_card = MetricCard("Acquisition", "-- fps", "#80611a")
         cards.addWidget(self.peak_card, 0, 0)
@@ -461,7 +478,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.display_smoothing.addItem("Raw / no filter", 0)
         self.display_smoothing.addItem("Fast / low lag", 1)
         self.display_smoothing.addItem("Smooth", 2)
-        self.display_smoothing.setCurrentIndex(1)
+        self.display_smoothing.setCurrentIndex(0)
         self.display_smoothing.setToolTip(
             "Display-only filtering; raw acquisition and CSV stay full-rate."
         )
@@ -473,7 +490,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.auto_y = QtWidgets.QCheckBox("Auto")
         self.auto_y.setChecked(True)
         self.auto_y.setToolTip(
-            "Continuously follow the useful signal range using robust percentiles."
+            "Continuously include the full finite detector range without clipping."
         )
         self.auto_y.toggled.connect(self._auto_y_toggled)
         self.fit_y_button = QtWidgets.QPushButton("Fit once")
@@ -550,7 +567,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         footer = QtWidgets.QHBoxLayout()
         self.frame_label = QtWidgets.QLabel("Frame --")
         self.calibration_label = QtWidgets.QLabel(
-            f"Axis: {self.calibration.label} / per-device coefficients not installed"
+            f"Axis: {self.calibration.label} / not wavelength or radiometrically calibrated"
         )
         self.saturation_label = QtWidgets.QLabel("Saturation --")
         for widget in (self.frame_label, self.calibration_label, self.saturation_label):
@@ -799,6 +816,13 @@ class SpectrumWindow(QtWidgets.QMainWindow):
                 "source": frame.source,
             },
             "spectrum": spectrum,
+            "calibration": {
+                "wavelength_axis": self.calibration.label,
+                "per_device_wavelength_coefficients": False,
+                "pixel_response_eeprom_loaded": self.pixel_correction_loaded,
+                "dark_corrected": self.dark_reference is not None,
+                "radiometrically_calibrated": False,
+            },
             "dark_reference": self.dark_reference is not None,
             "recording": self.record_button.isChecked(),
         }
@@ -878,12 +902,21 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         raise ValueError(f"unknown control action: {action}")
 
     def _publish_spectrum_data(self, frame: SpectrumFrame, counts: np.ndarray) -> None:
+        processed = self.current_counts if self.current_counts is not None else counts
         self.control_bridge.update_spectrum({
             "sequence": frame.sequence,
             "timestamp_ns": frame.timestamp_ns,
             "exposure_ms": frame.exposure_ms,
             "wavelengths_nm": self.wavelengths.tolist(),
-            "counts": counts.tolist(),
+            "counts": processed.tolist(),
+            "raw_counts": frame.counts.tolist(),
+            "processed_counts": processed.tolist(),
+            "display_counts": counts.tolist(),
+            "wavelength_axis": self.calibration.label,
+            "intensity_units": "relative detector counts",
+            "dark_corrected": self.dark_reference is not None,
+            "pixel_response_corrected": self.pixel_correction_loaded,
+            "radiometrically_calibrated": False,
         })
 
     def _process_control_requests(self) -> None:
@@ -971,6 +1004,14 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.acquisition_fps = float(status.get("fps", 0.0))
         self.valid_frames = int(status.get("valid", 0))
         self.invalid_frames = int(status.get("invalid", 0))
+        factors = status.get("correction_factors")
+        if isinstance(factors, list) and len(factors) == 288:
+            candidate = np.asarray(factors, dtype=np.float64)
+            if np.all(np.isfinite(candidate)) and np.all(candidate > 0.0):
+                self.pixel_correction = candidate
+                self.pixel_correction_loaded = bool(
+                    status.get("correction_loaded", False)
+                )
         if state == "streaming":
             self.status_pill.setText("LIVE")
             self.status_pill.setStyleSheet("background:#2ca58d;color:white;")
@@ -983,7 +1024,13 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         port = status.get("port")
         if isinstance(port, dict):
             self.port_label.setText(f"{port.get('device')} / {port.get('vid_pid')}")
-        self.rate_card.value.setText(f"{float(status.get('fps', 0.0)):.1f} fps")
+        self.rate_card.value.setText(
+            f"{float(status.get('fps', 0.0)):.0f} acq / 30 view"
+        )
+        self.calibration_label.setText(
+            "Axis: nominal 340-850 nm / intensity: relative detector counts / "
+            "not radiometric"
+        )
         self._append_diagnostic(
             f"{state.upper()} valid={status.get('valid', 0)} invalid={status.get('invalid', 0)}\n"
             f"{status.get('message', '')}\nraw: {status.get('raw_hex', '')}"
@@ -1024,7 +1071,11 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.connection_notice.hide()
         self.last_generation = generation
         self.current_frame = frame
-        counts = process_counts(frame.counts, dark=self.dark_reference)
+        counts = process_counts(
+            frame.counts,
+            dark=self.dark_reference,
+            correction=self.pixel_correction,
+        )
         self.current_counts = counts
         self._update_auto_exposure(frame.counts)
         display_counts = self._filter_for_display(counts)
@@ -1034,13 +1085,19 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self._publish_control_state()
         self.reference_note.hide()
         self.plot_caption.setText(
-            "Live validated frame; acquisition continues independently of this 30 Hz display."
+            f"Validated live frame | {frame.exposure_ms * 1_000.0:.1f} us | "
+            f"{self.acquisition_fps:.1f} acquisition fps | 30 Hz view | "
+            "nominal wavelength axis; not radiometrically calibrated."
         )
 
     def _render(self, frame: SpectrumFrame, counts: np.ndarray) -> None:
         self.curve.setData(self.wavelengths, counts)
-        summary = metrics(self.wavelengths, counts)
-        self.peak_marker.setData([summary.peak_nm], [summary.peak_counts])
+        science_counts = self.current_counts if self.current_counts is not None else counts
+        summary = metrics(self.wavelengths, science_counts)
+        peak_index = int(np.argmax(science_counts))
+        self.peak_marker.setData(
+            [summary.peak_nm], [float(counts[peak_index])]
+        )
         if self.auto_y.isChecked():
             target_floor, target_ceiling = self._suggest_y_range(counts)
             if self.y_ceiling <= 1.0:
@@ -1079,8 +1136,9 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             np.isfinite(counts)
             & ((counts < self.y_floor) | (counts > self.y_ceiling))
         ))
+        raw_saturated = int(np.count_nonzero(frame.counts >= 65_535.0))
         self.saturation_label.setText(
-            f"ADC saturation {summary.saturated_pixels}/288  |  "
+            f"ADC saturation {raw_saturated}/288  |  "
             f"Display clip {display_clipped}/288"
         )
 
@@ -1088,10 +1146,12 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         if self.current_frame is None:
             return
         self.dark_reference = self.current_frame.counts.copy()
+        self.plot.setLabel("left", "Dark-corrected signal", units="counts")
         self._append_diagnostic(f"Dark reference captured from frame {self.current_frame.sequence}.")
 
     def clear_dark(self) -> None:
         self.dark_reference = None
+        self.plot.setLabel("left", "Detector signal", units="counts")
         self._append_diagnostic("Dark reference cleared.")
 
     def toggle_recording(self, active: bool) -> None:

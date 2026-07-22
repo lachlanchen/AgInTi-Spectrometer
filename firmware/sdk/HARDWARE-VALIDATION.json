@@ -1,68 +1,51 @@
 {
-  "schema": "aginti.c12880.hardware-validation.v2",
-  "tested_at": "2026-07-22T20:52:54+08:00",
-  "performance_firmware": {
-    "version": "0.3.3",
-    "bin_bytes": 55880,
-    "bin_sha256": "04CD5791F3FB8466891C01A69E5CE4861DCF48B1CC23E22F3A85454038A94500",
-    "programmed": true,
-    "openocd_verified": true,
-    "target_voltage_v": 3.2192,
+  "schema": "aginti.c12880.hardware-validation.v3",
+  "tested_at": "2026-07-22T22:00:00+08:00",
+  "active_device_firmware": {
+    "kind": "private_vendor_original",
+    "usb_port": "COM3",
     "usb_vid_pid": "0483:5740",
-    "usb_port": "COM4",
-    "usb_enumerated": true,
     "identity_valid": true,
-    "identity_ascii": "c12880",
-    "correction_bytes": 1024,
-    "correction_nonzero_bytes": 1024,
     "frame_bytes": 590,
     "pixels": 288,
-    "disposition": "HARDWARE_VALIDATED"
+    "optical_response_valid": true,
+    "internal_flash_sha256": "67F1F6C421D56C2077D5A3F7417AA6F5213A2791D0C63AE5DAFBDBDF461764B4"
   },
-  "dma_capture_diagnostics": {
-    "capture_calls": 172,
-    "completed_captures": 172,
-    "failed_captures": 0,
-    "last_stage": "complete",
-    "last_error": 0
+  "performance_firmware_0_3_3": {
+    "bin_sha256": "04CD5791F3FB8466891C01A69E5CE4861DCF48B1CC23E22F3A85454038A94500",
+    "usb_enumerated": true,
+    "identity_valid": true,
+    "correction_bytes": 1024,
+    "frame_structure_valid": true,
+    "raw_serial_peak_fps_at_3_us": 1027.48,
+    "integrated_fps_at_10_us": 464.97,
+    "optical_failure": "Nearly flat 39062-39318 count payload with no credible exposure-dependent spectrum",
+    "disposition": "TRANSPORT_VALIDATED_OPTICALLY_REJECTED"
   },
-  "raw_serial_benchmark": [
-    {"exposure_us": 3, "frames": 30, "fps": 1027.48},
-    {"exposure_us": 10, "frames": 30, "fps": 1006.22},
-    {"exposure_us": 100, "frames": 30, "fps": 665.08},
-    {"exposure_us": 1000, "frames": 30, "fps": 164.27},
-    {"exposure_us": 10000, "frames": 30, "fps": 19.53}
-  ],
-  "integrated_application_validation": {
-    "exposure_us": 10,
-    "state": "live",
-    "connected": true,
-    "fps": 464.97,
-    "valid_frames": 8796,
-    "invalid_frames": 0,
-    "sequence_advance_in_500_ms": 288,
-    "frame_age_ms": 9.0,
-    "frame_health": "valid",
-    "pixels": 288,
-    "wavelength_bins": 288,
-    "web_http_status": 200,
-    "desktop_gui_started": true,
-    "api_command_round_trip": true
+  "vendor_optical_reference": {
+    "exposures_us": [10, 100, 1000],
+    "observed_spans_counts": [1205.6, 2838.4, 27173.4],
+    "exposure_response_present": true,
+    "line_tail_policy": "Vendor copies buffer word 284 into words 291-294; final displayed bins are not independent measurements",
+    "wavelength_axis": "nominal 340-850 nm",
+    "per_device_wavelength_coefficients_available": false,
+    "radiometrically_calibrated": false
   },
-  "root_cause_and_recovery": {
-    "v0_3_0_failure": "USB initialized the HS core as an embedded full-speed PHY",
-    "hardware_topology": "USB_OTG_HS with external ULPI PHY",
-    "reconstruction_identity_valid": true,
-    "reconstruction_correction_bytes": 1024,
-    "reconstruction_frame_valid": true,
-    "original_image_bytes": 2097152,
-    "original_image_sha256": "67F1F6C421D56C2077D5A3F7417AA6F5213A2791D0C63AE5DAFBDBDF461764B4",
-    "post_restore_exact_readback_match": true
+  "direct_reconstruction_0_3_4": {
+    "source_status": "EXPERIMENTAL_NOT_RELEASED",
+    "central_286_bin_shape_correlation_to_vendor": 0.9973,
+    "known_work": [
+      "continuous ADC readout reconstructed",
+      "5 MHz integration tick restored",
+      "vendor PLL2 ADC clock reconstructed",
+      "vendor line-tail replacement reconstructed"
+    ],
+    "acceptance": "PENDING_FULL_END_TO_END_OPTICAL_RETEST"
   },
   "safety": {
     "option_bytes_modified": false,
     "external_eeprom_modified": false,
     "private_original_published": false,
-    "current_firmware": "performance-0.3.3"
+    "original_restore_verified": true
   }
 }

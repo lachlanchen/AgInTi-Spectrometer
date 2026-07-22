@@ -7,10 +7,13 @@ vendor pseudocode.
 
 ## Safety status
 
-Performance firmware `0.3.3` is hardware-validated on the target controller.
-The reconstruction image also passed identity, calibration-memory, and frame
-tests. The coordinator remains compile-validated only. Before programming a
-different controller, preserve all of the following:
+Performance firmware `0.3.3` is **transport-validated but optically rejected**.
+It enumerates and sends structurally valid frames, but its payload measured an
+almost flat ADC baseline rather than the incident spectrum. The hash-verified
+original firmware is currently restored and is the only optically accepted
+image. The `0.3.4` direct reconstruction is experimental; the coordinator
+remains compile-validated only. Before programming a different controller,
+preserve all of the following:
 
 - the existing 2 MiB internal-flash image;
 - external EEPROM calibration bytes, including `0x0000..0x0fff` and the area
@@ -32,11 +35,11 @@ The exact 2 MiB vendor read-back remains private and ignored. Its public
 SHA-256 is recorded in `BUILD-MANIFEST.json`. Build all three source images
 without touching hardware with `./scripts/build_c12880_firmware_suite.ps1`.
 
-> **Hardware result (2026-07-22):** version `0.3.0` failed because it assumed
-> the embedded full-speed PHY. Version `0.3.3` configures the board's external
-> ULPI PHY and passed USB, identity, EEPROM, DMA-frame, GUI, API, and web tests.
-> The original firmware was also restored and matched by a full 2 MiB readback.
-> See
+> **Hardware result (2026-07-22):** version `0.3.3` fixed the external ULPI
+> transport and reached about 1,027 request/response fps at 3 us, but later
+> optical A/B testing rejected its ADC payload. The original firmware was
+> restored, matched by a full 2 MiB readback, and recovered exposure-dependent
+> spectra. See
 > `HARDWARE-VALIDATION.json` and
 > `docs/performance-firmware-first-flash-20260722.md`.
 
@@ -54,8 +57,9 @@ without touching hardware with `./scripts/build_c12880_firmware_suite.ps1`.
 
 ## Design
 
-- Hardware-timed clock edges via TIM2 requests and DMA writes to `GPIOE_BSRR`.
-- ADC1 external triggering plus DMA into non-cacheable D2 SRAM.
+- Experimental hardware-timed clock edges via TIM2/GPIO DMA and ADC DMA.
+- A vendor-timing direct backend using continuous ADC1 conversion for optical
+  reconstruction and fault isolation.
 - Two frame slots so USB transmission can overlap the next acquisition.
 - Legacy 590-byte frames for existing software and a framed V2 stream with
   sequence, timestamp, exposure, status, drop count, and CRC-32.
@@ -63,11 +67,10 @@ without touching hardware with `./scripts/build_c12880_firmware_suite.ps1`.
 - No dynamic allocation in the application data path.
 - Safe outputs and a non-returning panic path.
 
-The performance target defaults to 1 MHz and exposes 100 kHz to 5 MHz. The
-upper endpoint uses the shortest ADC sample window and represents a compile-
-validated hardware ceiling candidate, not a measured guarantee. The
-reconstruction uses the observed 5 MHz integration-tick basis with the direct
-capture path.
+The legacy protocol uses 5,000 integration ticks per millisecond. The direct
+reconstruction therefore defaults to the observed 5 MHz tick basis. DMA remains
+an experimental throughput path until it reproduces the original optical A/B
+response, including the controller's copied line-tail bins.
 
 ## Fetch and build
 
@@ -123,8 +126,9 @@ the calibration workflow are documented in `docs/dual-h7-control.md`.
 ## Current validation boundary
 
 On-device testing establishes USB enumeration, identity, read-only EEPROM
-access, 288-pixel DMA capture, legacy framing, and host integration from 3 us
-through 10 ms. It does not establish absolute radiometric accuracy, per-device
-wavelength calibration, the advertised 5 MHz ceiling, external triggering, or
-long-duration thermal stability. Those checks remain in `docs/architecture.md`
-and the Chinese monograph under `publications/c12880_firmware_sdk/`.
+access, legacy framing, and transport throughput. Those checks do **not** imply
+correct optical sampling. Optical acceptance requires exposure response,
+spectral shape agreement with the original firmware, edge-bin checks, and a
+dark/reference acquisition. Absolute radiometry, individual wavelength
+coefficients, external triggering, and long-duration thermal stability remain
+unvalidated.

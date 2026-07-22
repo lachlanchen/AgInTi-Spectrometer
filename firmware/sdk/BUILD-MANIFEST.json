@@ -1,7 +1,7 @@
 {
     "schema":  "aginti.c12880.firmware-suite.v2",
     "generated_utc":  "2026-07-22T12:52:21.8560101Z",
-    "state":  "HARDWARE_VALIDATED",
+    "state":  "TRANSPORT_VALIDATED_OPTICALLY_REJECTED",
     "target":  "STM32H743xx",
     "compiler":  "arm-none-eabi-gcc.exe (Arm GNU Toolchain 14.2.Rel1 (Build arm-14.52)) 14.2.1 20241119",
     "components":  {
@@ -33,7 +33,8 @@
                                                             ]
                                           },
                        "performance":  {
-                                           "version":  "0.3.0",
+                                           "version":  "0.3.3",
+                                           "validation_state":  "TRANSPORT_ONLY_OPTICAL_FAILURE",
                                            "profile":  "TIM2 GPIO DMA + ADC DMA + USB CDC + legacy/V2 protocols",
                                            "target":  "aginti_c12880_h743",
                                            "artifacts":  [
@@ -102,6 +103,7 @@
                    "flashed":  true,
                    "erased":  true,
                    "option_bytes_modified":  false,
-                   "eeprom_modified":  false
+                   "eeprom_modified":  false,
+                   "active_device_firmware":  "private vendor original restored"
                }
 }

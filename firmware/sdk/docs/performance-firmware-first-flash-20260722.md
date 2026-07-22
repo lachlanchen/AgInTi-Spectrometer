@@ -1,60 +1,48 @@
-# Performance Firmware Hardware Validation
+# Performance Firmware Validation Correction
 
-## Decision
+## Corrected decision
 
-Performance firmware `0.3.3` is **accepted for this controller**. OpenOCD
-programming and byte verification passed, USB enumerated as `0483:5740` on
-`COM4`, and the complete legacy host workflow passed. The tested 55,880-byte
-BIN has SHA-256:
+Performance firmware `0.3.3` is **transport-valid but optically rejected**.
+It programmed and verified, enumerated through the external ULPI PHY, returned
+the `c12880` identity and 1,024 correction bytes, and delivered valid 590-byte
+packets. These checks did not prove that the ADC payload represented light.
 
-```text
-04CD5791F3FB8466891C01A69E5CE4861DCF48B1CC23E22F3A85454038A94500
-```
+Subsequent optical A/B testing found an almost flat 39k-count trace with only
+about 256 counts of span. The original firmware, under the same protocol,
+showed strong exposure-dependent spectral structure. Historical `0.3.3` tags
+are retained for traceability but must not be interpreted as optical approval.
 
-## Failure analysis and correction
+## Throughput result and the 400 FPS observation
 
-Version `0.3.0` did not enumerate because it treated the STM32H743 HS USB core
-as an embedded full-speed PHY on `PB14/PB15`. Read-only analysis of the working
-controller showed that this board uses an external ULPI high-speed PHY. Version
-`0.3.3` configures the observed ULPI pins on ports A, B, and C, enables both HS
-and ULPI clocks, uses high-speed PCD mode, and exposes a stable unique USB serial
-descriptor. No external calibration EEPROM write path exists in the firmware.
+The rejected image nevertheless measured 1,027 fps at 3 us and 1,006 fps at
+10 us in a minimal serial loop. The integrated GUI/API path measured about
+465 fps because each frame requires a host request, validation, publication,
+and API sharing. The graph itself renders at a fixed 30 Hz. Acquisition FPS,
+render FPS, and exposure-limited FPS are separate quantities.
 
-The direct reconstruction profile then isolated the remaining system layers:
-it returned the eight-byte identity, read all 1,024 nonzero correction bytes,
-and produced a valid 590-byte, 288-pixel frame. The final performance build
-passed the same checks with TIM2/GPIO DMA and ADC DMA enabled.
+With the restored original firmware, measured frame rate falls as integration
+time rises: a current-room auto-exposure sweep moved from hundreds of fps at
+short exposure toward about 160 fps near 1.5 ms. A brighter input, wider optical
+coupling, or lower target exposure is required for both high SNR and high FPS.
 
-## Measured capture results
+## Root causes found
 
-Thirty-frame raw serial runs produced:
+- The direct reconstruction had initially used a 1 MHz clock despite the
+  legacy protocol encoding 5,000 integration ticks per millisecond.
+- The original ADC runs continuously and is read once per pixel clock; the DMA
+  trigger scheme sampled a stable baseline instead.
+- The original PLL2 configuration gives ADC1 an approximately 36.05 MHz clock.
+- The original firmware replaces buffer words 291-294 with word 284 to hide
+  the analog line-return tail. Those edge bins are not independent samples.
 
-| Exposure | Sustained rate |
-|---:|---:|
-| 3 us | 1027.48 fps |
-| 10 us | 1006.22 fps |
-| 100 us | 665.08 fps |
-| 1 ms | 164.27 fps |
-| 10 ms | 19.53 fps |
+Experimental `0.3.4` source records these findings but remains pending a clean
+end-to-end optical retest. The target is currently running the hash-verified
+private original image.
 
-The SWD diagnostic record reported 172 completed captures and zero failures.
-At fixed 10 us, the integrated desktop GUI, REST API, and web application
-reported 464.97 fps, 8,796 valid frames, zero invalid frames, 9 ms frame age,
-and 288 sequence increments over 500 ms. The web root returned HTTP 200.
+## Scientific interpretation
 
-These values measure transport and acquisition, not calibrated optical
-accuracy. Per-device wavelength coefficients, radiometry, external triggering,
-the 5 MHz clock ceiling, and long-duration thermal behavior remain separate
-validation tasks.
-
-## Recovery evidence
-
-The private original 2 MiB image remains available locally with SHA-256:
-
-```text
-67F1F6C421D56C2077D5A3F7417AA6F5213A2791D0C63AE5DAFBDBDF461764B4
-```
-
-It was previously restored and a complete post-restore readback matched this
-hash exactly. The public repository contains only this hash, never the binary.
-Option bytes and the external calibration EEPROM were not modified.
+The application displays a nominal 340-850 nm axis unless the individual
+Hamamatsu test-sheet polynomial is supplied. ADC counts include source power,
+optical throughput, detector responsivity, electronics gain, and exposure.
+They are not absolute spectral irradiance. Quantitative work requires dark
+subtraction and wavelength/radiometric calibration.
