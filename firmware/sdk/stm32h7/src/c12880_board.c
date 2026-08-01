@@ -369,6 +369,16 @@ static void direct_readout_clock(uint32_t sensor_clock_hz) {
 static bool direct_capture(uint16_t *raw,
                            const aginti_c12880_config_t *config,
                            uint32_t *status) {
+  /* This is the optically correlated acquisition path.  It deliberately
+   * mirrors the recovered controller rather than forcing the ADC to accept a
+   * conversion at every 5 MHz integration clock:
+   *
+   *   8 pre-clocks, ST high, 4 lead clocks, exposure clocks, ST low,
+   *   90 dummy clocks, start continuous ADC, one readout clock, then
+   *   poll one completed conversion before advancing each of 294 samples.
+   *
+   * The ADC conversion time therefore controls readout cadence while the
+   * integration clocks retain the requested sensor-clock basis. */
   for (uint32_t i = 0; i < C12880_PRE_CLOCKS; ++i)
     direct_clock(config->sensor_clock_hz);
   gpio_set(C12880_ST_PORT, C12880_ST_PIN);
@@ -382,6 +392,7 @@ static bool direct_capture(uint16_t *raw,
 
   /* Vendor-equivalent readout: start continuous ADC once, advance one clock,
    * then read a conversion before each subsequent sensor clock. */
+  __HAL_ADC_CLEAR_FLAG(&hadc1, ADC_FLAG_EOC | ADC_FLAG_EOS | ADC_FLAG_OVR);
   if (HAL_ADC_Start(&hadc1) != HAL_OK) {
     *status |= AGINTI_STATUS_CAPTURE_TIMEOUT;
     return false;
@@ -397,6 +408,10 @@ static bool direct_capture(uint16_t *raw,
     direct_readout_clock(config->sensor_clock_hz);
   }
   (void)HAL_ADC_Stop(&hadc1);
+  if (__HAL_ADC_GET_FLAG(&hadc1, ADC_FLAG_OVR) != 0U) {
+    *status |= AGINTI_STATUS_ADC_OVERRUN;
+    __HAL_ADC_CLEAR_FLAG(&hadc1, ADC_FLAG_OVR);
+  }
   /* The original controller replaces buffer words 291..294 with word 284.
    * In this zero-based raw array (vendor words 6..299), those are 285..288
    * and reference 278. The physical video output is already in line return

@@ -20,12 +20,17 @@ from .protocol import (
 
 
 class SpectrometerClient:
-    def __init__(self, port: str, timeout: float = 0.25) -> None:
+    def __init__(self, port: str, timeout: float = 0.02,
+                 read_chunk_bytes: int = 64 * 1024) -> None:
         self.port = port
         self.timeout = timeout
+        self.read_chunk_bytes = max(636, int(read_chunk_bytes))
         self.serial: serial.Serial | None = None
         self.sequence = 1
         self.decoder = StreamDecoder()
+        self.frames_received = 0
+        self.sequence_gaps = 0
+        self.last_frame_sequence: int | None = None
 
     def __enter__(self) -> "SpectrometerClient":
         self.open()
@@ -37,6 +42,10 @@ class SpectrometerClient:
     def open(self) -> None:
         if self.serial is None:
             self.serial = serial.Serial(self.port, 1_500_000, timeout=self.timeout)
+            try:
+                self.serial.set_buffer_size(rx_size=1024 * 1024, tx_size=4096)
+            except (AttributeError, OSError, serial.SerialException):
+                pass
             self.serial.reset_input_buffer()
 
     def close(self) -> None:
@@ -81,7 +90,16 @@ class SpectrometerClient:
             raise RuntimeError("client is not open")
         deadline = None if duration is None else time.monotonic() + duration
         while deadline is None or time.monotonic() < deadline:
-            data = self.serial.read(self.serial.in_waiting or 64)
+            waiting = self.serial.in_waiting
+            requested = min(self.read_chunk_bytes,
+                            waiting if waiting > 0 else 4096)
+            data = self.serial.read(requested)
             for frame in self.decoder.feed(data):
+                if self.last_frame_sequence is not None:
+                    expected = (self.last_frame_sequence + 1) & 0xFFFFFFFF
+                    if frame.sequence != expected:
+                        self.sequence_gaps += ((frame.sequence - expected)
+                                               & 0xFFFFFFFF)
+                self.last_frame_sequence = frame.sequence
+                self.frames_received += 1
                 yield frame
-

@@ -17,6 +17,10 @@ extern "C" {
 #define AGINTI_ALIGN32
 #endif
 
+#ifndef AGINTI_C12880_SLOT_COUNT
+#define AGINTI_C12880_SLOT_COUNT 4U
+#endif
+
 enum {
   AGINTI_STATUS_OK = 0U,
   AGINTI_STATUS_CAPTURE_TIMEOUT = 1U << 0,
@@ -80,7 +84,7 @@ typedef struct {
 typedef struct {
   aginti_c12880_platform_t platform;
   aginti_c12880_config_t config;
-  aginti_c12880_slot_t slots[2];
+  aginti_c12880_slot_t slots[AGINTI_C12880_SLOT_COUNT];
   volatile uint8_t pending_single;
   volatile bool streaming;
   volatile bool capture_active;
@@ -109,4 +113,3 @@ void aginti_c12880_transport_complete(aginti_c12880_device_t *device);
 #endif
 
 #endif
-

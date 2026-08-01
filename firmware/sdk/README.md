@@ -28,12 +28,21 @@ The firmware deliberately implements EEPROM reads but no EEPROM writes.
 Three independent source images are maintained:
 
 - `reconstruction_h743/`: vendor-compatible, direct/blocking clean-room rewrite;
+- `aginti_c12880_optical_streaming_h743`: optically correlated direct capture
+  combined with four-slot V2 USB streaming; this is the preferred next A/B
+  validation candidate;
 - `stm32h7/`: maximum-throughput TIM2/GPIO DMA and ADC DMA implementation;
 - `coordinator_h743/`: dual-lamp modulation, telemetry, cooling, LUT, and trigger controller.
 
 The exact 2 MiB vendor read-back remains private and ignored. Its public
 SHA-256 is recorded in `BUILD-MANIFEST.json`. Build all three source images
 without touching hardware with `./scripts/build_c12880_firmware_suite.ps1`.
+
+The optical-streaming profile is intentionally separate from performance
+firmware `0.3.3`. It does not trigger ADC1 at every 5 MHz clock. Instead it
+preserves the recovered continuous-ADC sequence and advances the sensor only
+after each conversion, while USB transmission overlaps acquisition. See
+`docs/optical-streaming-firmware.md`.
 
 > **Hardware result (2026-07-22):** version `0.3.3` fixed the external ULPI
 > transport and reached about 1,027 request/response fps at 3 us, but later

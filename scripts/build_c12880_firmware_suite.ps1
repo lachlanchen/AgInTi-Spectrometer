@@ -23,6 +23,7 @@ if ($LASTEXITCODE -ne 0) { throw "CMake configure failed: $LASTEXITCODE" }
 
 $targets = @(
     'aginti_c12880_reconstruction_h743',
+    'aginti_c12880_optical_streaming_h743',
     'aginti_c12880_h743',
     'aginti_dual_h7_coordinator'
 )
@@ -57,7 +58,7 @@ function Get-DependencyRevision([string]$Name) {
 }
 
 $manifest = [ordered]@{
-    schema = 'aginti.c12880.firmware-suite.v2'
+    schema = 'aginti.c12880.firmware-suite.v3'
     generated_utc = [DateTime]::UtcNow.ToString('o')
     state = 'COMPILED_NOT_FLASHED'
     target = 'STM32H743xx'
@@ -68,6 +69,13 @@ $manifest = [ordered]@{
             compatibility = 'clean-room behavioral reconstruction; not byte-identical'
             target = 'aginti_c12880_reconstruction_h743'
             artifacts = @(Get-ArtifactSet 'aginti_c12880_reconstruction_h743')
+        }
+        optical_streaming = [ordered]@{
+            version = '0.4.0'
+            profile = 'optically correlated continuous ADC capture + four-slot V2 USB streaming'
+            validation = 'source implementation; requires vendor A/B optical acceptance before scientific use'
+            target = 'aginti_c12880_optical_streaming_h743'
+            artifacts = @(Get-ArtifactSet 'aginti_c12880_optical_streaming_h743')
         }
         performance = [ordered]@{
             version = '0.3.0'

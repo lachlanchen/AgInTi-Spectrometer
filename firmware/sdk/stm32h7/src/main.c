@@ -5,6 +5,20 @@
 
 #include <string.h>
 
+#if defined(AGINTI_OPTICAL_STREAMING_PROFILE)
+#define AGINTI_FIRMWARE_VERSION 0x00040000U
+#define AGINTI_FIRMWARE_NAME \
+  "AgInTi C12880MA optical streaming firmware 0.4"
+#define AGINTI_DEFAULT_CLOCK_HZ 5000000U
+#define AGINTI_FEATURE_FLAGS 0x0000003FU
+#else
+#define AGINTI_FIRMWARE_VERSION 0x00030000U
+#define AGINTI_FIRMWARE_NAME \
+  "AgInTi C12880MA performance firmware 0.3"
+#define AGINTI_DEFAULT_CLOCK_HZ 1000000U
+#define AGINTI_FEATURE_FLAGS 0x0000001FU
+#endif
+
 typedef enum { TX_OWNER_NONE = 0, TX_OWNER_FRAME, TX_OWNER_CONTROL } tx_owner_t;
 
 typedef struct __attribute__((packed)) {
@@ -129,16 +143,17 @@ static void handle_command(const aginti_command_t *command) {
       /* Deliberately read-only: calibration writes require an explicit future unlock. */
       break;
     case AGINTI_CMD_V2_HELLO: {
-      static const char name[] = "AgInTi C12880MA performance firmware 0.3";
+      static const char name[] = AGINTI_FIRMWARE_NAME;
       reply_v2(command, 0U, name, (uint16_t)sizeof(name));
       break;
     }
     case AGINTI_CMD_V2_GET_CAPS: {
       const capabilities_t caps = {
-          0x00030000U, 100000U, 1000000U, 5000000U, 3U, 2000000U,
+          AGINTI_FIRMWARE_VERSION, 100000U, AGINTI_DEFAULT_CLOCK_HZ,
+          5000000U, 3U, 2000000U,
           AGINTI_C12880_ACTIVE_PIXELS, AGINTI_C12880_RAW_SAMPLES,
           AGINTI_C12880_LEGACY_FRAME_BYTES, AGINTI_C12880_V2_FRAME_BYTES,
-          0x0000001FU};
+          AGINTI_FEATURE_FLAGS};
       reply_v2(command, 0U, &caps, sizeof(caps));
       break;
     }

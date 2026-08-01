@@ -12,7 +12,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest="action", required=True)
     sub.add_parser("identity")
     stream = sub.add_parser("stream")
-    stream.add_argument("--clock-hz", type=int, default=1_000_000)
+    stream.add_argument("--clock-hz", type=int, default=5_000_000)
     stream.add_argument("--exposure-us", type=float, default=1000.0)
     stream.add_argument("--seconds", type=float, default=5.0)
     args = parser.parse_args()
@@ -37,8 +37,12 @@ def main() -> None:
                           f"peak={int(frame.pixels.max())}")
         finally:
             device.stop()
+        elapsed = max(time.monotonic() - started, 1e-9)
+        print(f"final frames={count} fps={count / elapsed:.1f} "
+              f"sequence_gaps={device.sequence_gaps} "
+              f"crc_failures={device.decoder.crc_failures} "
+              f"discarded_bytes={device.decoder.discarded_bytes}")
 
 
 if __name__ == "__main__":
     main()
-

@@ -22,10 +22,29 @@ static void exit_critical(aginti_c12880_device_t *device, uint32_t token) {
 
 static aginti_c12880_slot_t *find_slot(aginti_c12880_device_t *device,
                                       aginti_slot_state_t state) {
-  for (size_t i = 0; i < 2U; ++i) {
+  for (size_t i = 0; i < AGINTI_C12880_SLOT_COUNT; ++i) {
     if (device->slots[i].state == state) return &device->slots[i];
   }
   return NULL;
+}
+
+static bool sequence_precedes(uint32_t left, uint32_t right) {
+  return (int32_t)(left - right) < 0;
+}
+
+static aginti_c12880_slot_t *find_oldest_ready(
+    aginti_c12880_device_t *device) {
+  aginti_c12880_slot_t *oldest = NULL;
+  for (size_t i = 0; i < AGINTI_C12880_SLOT_COUNT; ++i) {
+    aginti_c12880_slot_t *candidate = &device->slots[i];
+    if (candidate->state != AGINTI_SLOT_READY) continue;
+    if ((oldest == NULL) ||
+        sequence_precedes(candidate->metadata.sequence,
+                          oldest->metadata.sequence)) {
+      oldest = candidate;
+    }
+  }
+  return oldest;
 }
 
 static uint16_t pack_legacy(aginti_c12880_slot_t *slot) {
@@ -159,7 +178,7 @@ static void submit_ready(aginti_c12880_device_t *device) {
   if ((device->platform.transport_submit == NULL) ||
       ((device->platform.transport_busy != NULL) &&
        device->platform.transport_busy(device->platform.context))) return;
-  aginti_c12880_slot_t *slot = find_slot(device, AGINTI_SLOT_READY);
+  aginti_c12880_slot_t *slot = find_oldest_ready(device);
   if (slot == NULL) return;
   slot->tx_bytes = (slot->metadata.config.frame_format == AGINTI_FRAME_LEGACY)
                        ? pack_legacy(slot)
