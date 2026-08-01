@@ -35,7 +35,7 @@ Three independent source images are maintained:
 - `coordinator_h743/`: dual-lamp modulation, telemetry, cooling, LUT, and trigger controller.
 
 The exact 2 MiB vendor read-back remains private and ignored. Its public
-SHA-256 is recorded in `BUILD-MANIFEST.json`. Build all three source images
+SHA-256 is recorded in `BUILD-MANIFEST.json`. Build all four source images
 without touching hardware with `./scripts/build_c12880_firmware_suite.ps1`.
 
 The optical-streaming profile is intentionally separate from performance

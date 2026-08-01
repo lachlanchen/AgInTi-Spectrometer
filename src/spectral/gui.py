@@ -112,95 +112,111 @@ class AcquisitionWorker(QtCore.QObject):
         invalid = 0
         last_status = 0.0
         frame_times: deque[float] = deque(maxlen=256)
-        window: deque[np.ndarray] = deque(maxlen=1)
-        window_sum: np.ndarray | None = None
+        reconnect_delay = 0.20
         try:
-            descriptor = self.device.connect()
-            diagnostics = self.device.diagnostic_report()
-            correction_words = self.device.correction_words[:288].astype(
-                np.float64, copy=False
-            )
-            correction_factors = np.ones(288, dtype=np.float64)
-            correction_loaded = correction_words.size == 288
-            if correction_loaded:
-                candidate = correction_words / 10_000.0
-                if np.all(np.isfinite(candidate)) and np.all(candidate > 0.0):
-                    correction_factors = candidate
-                else:
-                    correction_loaded = False
-            self.status.emit({
-                "state": "connected",
-                "message": (
-                    f"Transport open on {descriptor.device}; "
-                    f"identity={diagnostics['identity_valid']} "
-                    f"correction={diagnostics['correction_bytes']} B"
-                ),
-                "port": descriptor.to_dict(),
-                "valid": valid,
-                "invalid": invalid,
-                "fps": 0.0,
-                "correction_factors": correction_factors.tolist(),
-                "correction_loaded": correction_loaded,
-            })
             while not self.stop_event.is_set():
-                exposure_ms, averaging, trigger_mode, output_mask = self.controls.snapshot()
-                self.device.set_trigger_mode(trigger_mode)  # type: ignore[arg-type]
-                self.device.set_output_mask(output_mask)
-                if window.maxlen != averaging:
-                    window = deque(maxlen=averaging)
-                    window_sum = None
                 try:
-                    raw_frame = self.device.acquire(exposure_ms)
-                    self.recorder.write(raw_frame)
-                    if averaging == 1:
-                        frame = raw_frame
-                    else:
-                        counts64 = raw_frame.counts.astype(np.float64, copy=False)
-                        if len(window) == window.maxlen:
-                            assert window_sum is not None
-                            window_sum -= window[0]
-                        window.append(counts64)
-                        if window_sum is None:
-                            window_sum = counts64.copy()
+                    descriptor = self.device.connect()
+                    diagnostics = self.device.diagnostic_report()
+                    correction_words = np.asarray(
+                        self.device.correction_words, dtype=np.float64
+                    ).reshape(-1)[:288]
+                    correction_factors = np.ones(288, dtype=np.float64)
+                    correction_loaded = correction_words.size == 288
+                    if correction_loaded:
+                        candidate = correction_words / 10_000.0
+                        if np.all(np.isfinite(candidate)) and np.all(candidate > 0.0):
+                            correction_factors = candidate
                         else:
-                            window_sum += counts64
-                        frame = SpectrumFrame(
-                            sequence=raw_frame.sequence,
-                            timestamp_ns=raw_frame.timestamp_ns,
-                            exposure_ms=raw_frame.exposure_ms,
-                            counts=window_sum / len(window),
-                            prefix_words=raw_frame.prefix_words,
-                            raw_size=raw_frame.raw_size,
-                            source=raw_frame.source,
-                        )
-                    self.latest.publish(frame)
-                    valid += 1
-                    frame_times.append(time.perf_counter())
-                    state = "streaming"
-                    message = "Valid 288-pixel stream"
-                except Exception as exc:
-                    invalid += 1
-                    state = "fault"
-                    raw = self.device.last_raw
-                    message = f"{type(exc).__name__}: {exc}; raw={len(raw)} B, nonzero={sum(bool(v) for v in raw)}"
-                    time.sleep(0.08)
-                now = time.perf_counter()
-                if now - last_status >= 0.45:
-                    fps = 0.0
-                    if len(frame_times) > 1:
-                        fps = (len(frame_times) - 1) / max(
-                            frame_times[-1] - frame_times[0], 1e-9
-                        )
+                            correction_loaded = False
                     self.status.emit({
-                        "state": state,
-                        "message": message,
-                        "port": self.device.descriptor.to_dict() if self.device.descriptor else None,
+                        "state": "connected",
+                        "message": (
+                            f"Sensor connected on {descriptor.device}; "
+                            f"firmware={diagnostics.get('firmware_name', 'unknown')}"
+                        ),
+                        "port": descriptor.to_dict(),
                         "valid": valid,
                         "invalid": invalid,
-                        "fps": fps,
-                        "raw_hex": self.device.last_raw[:48].hex(" "),
+                        "fps": 0.0,
+                        "transport_mode": diagnostics.get("transport_mode", "unknown"),
+                        "firmware_name": diagnostics.get("firmware_name", "Unknown"),
+                        "correction_factors": correction_factors.tolist(),
+                        "correction_loaded": correction_loaded,
                     })
-                    last_status = now
+                    reconnect_delay = 0.20
+                    frame_times.clear()
+                    window: deque[np.ndarray] = deque(maxlen=1)
+                    window_sum: np.ndarray | None = None
+
+                    while not self.stop_event.is_set():
+                        exposure_ms, averaging, trigger_mode, output_mask = self.controls.snapshot()
+                        self.device.set_trigger_mode(trigger_mode)  # type: ignore[arg-type]
+                        self.device.set_output_mask(output_mask)
+                        if window.maxlen != averaging:
+                            window = deque(maxlen=averaging)
+                            window_sum = None
+                        raw_frame = self.device.acquire(exposure_ms)
+                        self.recorder.write(raw_frame)
+                        if averaging == 1:
+                            frame = raw_frame
+                        else:
+                            counts64 = raw_frame.counts.astype(np.float64, copy=False)
+                            if len(window) == window.maxlen:
+                                assert window_sum is not None
+                                window_sum -= window[0]
+                            window.append(counts64)
+                            if window_sum is None:
+                                window_sum = counts64.copy()
+                            else:
+                                window_sum += counts64
+                            frame = SpectrumFrame(
+                                sequence=raw_frame.sequence,
+                                timestamp_ns=raw_frame.timestamp_ns,
+                                exposure_ms=raw_frame.exposure_ms,
+                                counts=window_sum / len(window),
+                                prefix_words=raw_frame.prefix_words,
+                                raw_size=raw_frame.raw_size,
+                                source=raw_frame.source,
+                            )
+                        self.latest.publish(frame)
+                        valid += 1
+                        frame_times.append(time.perf_counter())
+                        now = time.perf_counter()
+                        if now - last_status >= 0.45:
+                            fps = 0.0
+                            if len(frame_times) > 1:
+                                fps = (len(frame_times) - 1) / max(
+                                    frame_times[-1] - frame_times[0], 1e-9
+                                )
+                            self.status.emit({
+                                "state": "streaming",
+                                "message": "Live spectrum data",
+                                "port": descriptor.to_dict(),
+                                "valid": valid,
+                                "invalid": invalid,
+                                "fps": fps,
+                                "transport_mode": self.device.transport_mode,
+                                "firmware_name": self.device.firmware_name,
+                                "raw_hex": self.device.last_raw[:48].hex(" "),
+                            })
+                            last_status = now
+                except Exception as exc:
+                    invalid += 1
+                    raw = self.device.last_raw
+                    self.device.close()
+                    self.status.emit({
+                        "state": "reconnecting",
+                        "message": (
+                            f"Sensor link lost; retrying automatically: "
+                            f"{type(exc).__name__}: {exc}"
+                        ),
+                        "port": None, "valid": valid, "invalid": invalid,
+                        "fps": 0.0, "raw_hex": raw[:48].hex(" "),
+                    })
+                    if self.stop_event.wait(reconnect_delay):
+                        break
+                    reconnect_delay = min(2.0, reconnect_delay * 1.7)
         except Exception as exc:
             self.status.emit({
                 "state": "fault", "message": f"{type(exc).__name__}: {exc}",
@@ -1016,14 +1032,18 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.status_pill.setText("LIVE")
             self.status_pill.setStyleSheet("background:#2ca58d;color:white;")
         elif state == "connected":
-            self.status_pill.setText("LINK OPEN")
+            self.status_pill.setText("LINK READY")
+            self.status_pill.setStyleSheet("background:#e5b84e;color:#4f3d0b;")
+        elif state == "reconnecting":
+            self.status_pill.setText("RECONNECTING")
             self.status_pill.setStyleSheet("background:#e5b84e;color:#4f3d0b;")
         else:
-            self.status_pill.setText("FRAME FAULT")
+            self.status_pill.setText("DEVICE OFFLINE")
             self.status_pill.setStyleSheet("background:#d64f32;color:white;")
         port = status.get("port")
         if isinstance(port, dict):
-            self.port_label.setText(f"{port.get('device')} / {port.get('vid_pid')}")
+            mode = status.get("transport_mode", "unknown")
+            self.port_label.setText(f"{port.get('device')} / {mode}")
         self.rate_card.value.setText(
             f"{float(status.get('fps', 0.0)):.0f} acq / 30 view"
         )
@@ -1057,8 +1077,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
                     sum(view_range[0]) / 2.0, sum(view_range[1]) / 2.0
                 )
                 self.connection_notice.setText(
-                    "FRAME STREAM STALLED\n"
-                    "Expected 590 bytes / 288 pixels / "
+                    "SENSOR CONNECTION LOST\n"
+                    "Automatic reconnect is active / "
                     f"last valid frame {frame_age_seconds:.1f} s ago"
                 )
                 self.connection_notice.show()

@@ -60,7 +60,7 @@ function updateStatus(state) {
   const fault = state.fault;
   const faultCode = fault?.code || (disconnected ? "DISCONNECTED" : null);
   $("livePill").className = `live-pill ${live ? "" : disconnected ? "fault" : "waiting"}`;
-  $("livePill").innerHTML = `<i></i>${live ? "Live" : faultCode || "Waiting"}`;
+  $("livePill").innerHTML = `<i></i>${live ? "Live" : disconnected ? "Sensor offline" : "Connecting"}`;
   $("portLabel").textContent = disconnected
     ? `C12880MA / ${fault?.category || "disconnected"}`
     : state.frame?.source?.replace("hardware:", "") || "C12880MA / scanning";
@@ -83,12 +83,12 @@ function updateStatus(state) {
   $("fpsMetric").textContent = `${(state.acquisition?.fps || 0).toFixed(1)} fps`;
   $("frameLabel").textContent = disconnected
     ? state.frame
-      ? `${faultCode} / last frame ${state.frame.age_seconds?.toFixed(1) ?? "--"} s ago`
-      : `${faultCode} / no validated frame`
-    : state.frame ? `Frame ${state.frame.sequence} / ${state.frame.source}` : "No validated frame";
+      ? `Last spectrum ${state.frame.age_seconds?.toFixed(1) ?? "--"} s ago`
+      : "Waiting for spectrum data"
+    : state.frame ? `Frame ${state.frame.sequence} / ${state.frame.source}` : "Waiting for spectrum data";
   $("saturationLabel").textContent = `ADC saturation ${summary?.saturated_pixels ?? "--"}/288 / Display clip --`;
   $("statusLine").textContent = disconnected
-    ? `${faultCode} / ${fault?.detail || "hardware disconnected"} / invalid ${state.frame_health?.invalid_frames ?? 0}`
+    ? `${fault?.title || "Sensor offline"} / ${fault?.detail || "check the USB connection"}`
     : `API connected / raw acquisition ${Math.round(state.acquisition?.fps || 0)} fps / web render 20 fps`;
   drawSpectrum();
 }
@@ -237,7 +237,7 @@ function drawSpectrum() {
     ctx.font = `${13*dpr}px "Cascadia Mono", monospace`;
     ctx.fillText(
       fault?.code === "FRAME_STALE"
-        ? `No 590-byte frame for ${instrument.frame?.age_seconds?.toFixed(1) ?? "--"} s`
+        ? `No new spectrum for ${instrument.frame?.age_seconds?.toFixed(1) ?? "--"} s`
         : fault?.detail || "Connect the controller to begin acquisition",
       margin.left + plotW / 2,
       margin.top + plotH / 2 + 18 * dpr

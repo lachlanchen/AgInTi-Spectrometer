@@ -101,13 +101,13 @@ class ControlBridge:
                 state["fault"] = {
                     "code": "FRAME_STALE",
                     "category": "transport",
-                    "title": "Frame stream stalled",
+                    "title": "Sensor connection lost",
                     "detail": (
-                        "No validated 590-byte, 288-pixel frame arrived for "
+                        "No new spectrum arrived for "
                         f"{age_seconds:.1f} seconds"
                     ),
                     "likely_cause": (
-                        "USB disconnected, controller stopped, or serial transfer failed"
+                        "Check the USB cable or port; automatic reconnection is active"
                     ),
                 }
                 acquisition["fps"] = 0.0
@@ -115,9 +115,9 @@ class ControlBridge:
                 state["fault"] = {
                     "code": "ACQUISITION_FAULT",
                     "category": "acquisition",
-                    "title": "Acquisition worker fault",
+                    "title": "Sensor read error",
                     "detail": str(state.get("message") or "Unclassified acquisition error"),
-                    "likely_cause": "Controller, protocol, or serial I/O error",
+                    "likely_cause": "USB, firmware protocol, or sensor read error",
                 }
             else:
                 state["fault"] = None

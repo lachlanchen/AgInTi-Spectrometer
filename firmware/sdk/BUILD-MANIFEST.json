@@ -1,7 +1,7 @@
 {
-    "schema":  "aginti.c12880.firmware-suite.v2",
-    "generated_utc":  "2026-07-22T12:52:21.8560101Z",
-    "state":  "TRANSPORT_VALIDATED_OPTICALLY_REJECTED",
+    "schema":  "aginti.c12880.firmware-suite.v3",
+    "generated_utc":  "2026-08-01T09:48:56.3264691Z",
+    "state":  "COMPILED_NOT_FLASHED",
     "target":  "STM32H743xx",
     "compiler":  "arm-none-eabi-gcc.exe (Arm GNU Toolchain 14.2.Rel1 (Build arm-14.52)) 14.2.1 20241119",
     "components":  {
@@ -12,51 +12,78 @@
                                               "artifacts":  [
                                                                 {
                                                                     "path":  "firmware/sdk/build-suite/aginti_c12880_reconstruction_h743.elf",
-                                                                    "bytes":  223016,
-                                                                    "sha256":  "0DC03E59E93B52E0DB18594BC2AF86EF7ED99C9BE457B1442C78C23F9BAB6163"
+                                                                    "bytes":  224548,
+                                                                    "sha256":  "E3BAD10A5F325C3FCF516DF4E9C362892DA4AFE0E93DB36FAE73974DFB43722A"
                                                                 },
                                                                 {
                                                                     "path":  "firmware/sdk/build-suite/aginti_c12880_reconstruction_h743.bin",
-                                                                    "bytes":  48096,
-                                                                    "sha256":  "0D812048AFD5FD975DF4A8CCD61EAF657E1869E75B3A4FC16E5D7C7BEEF77D25"
+                                                                    "bytes":  48708,
+                                                                    "sha256":  "EE0015244049DFCAFFBC2FF728C4CC3F6B0E19A8003B6FA1BBBD9E9781C85B81"
                                                                 },
                                                                 {
                                                                     "path":  "firmware/sdk/build-suite/aginti_c12880_reconstruction_h743.hex",
-                                                                    "bytes":  135373,
-                                                                    "sha256":  "84BDF4A2F06014536DF505CF45FEB152AA6F5F405A2014E0DBCF8E46E038F9ED"
+                                                                    "bytes":  137091,
+                                                                    "sha256":  "9B8282E33F384DA274B400D54AEBC423ECC44D267E86BB2995C611A92CEF5DEB"
                                                                 },
                                                                 {
                                                                     "path":  "firmware/sdk/build-suite/aginti_c12880_reconstruction_h743.map",
-                                                                    "bytes":  337517,
-                                                                    "sha256":  "77B640A41DC1D3057A34B44D9ABFD3FAEDFF4A2AE99BA4F56CB80B301F1C1D76"
+                                                                    "bytes":  337706,
+                                                                    "sha256":  "0EDBCFFEB5B811865664D132DF249D0112226418E050E3CCFEEEAC32CA9BF415"
                                                                 }
                                                             ]
                                           },
+                       "optical_streaming":  {
+                                                 "version":  "0.4.0",
+                                                 "profile":  "optically correlated continuous ADC capture + four-slot V2 USB streaming",
+                                                 "validation":  "source implementation; requires vendor A/B optical acceptance before scientific use",
+                                                 "target":  "aginti_c12880_optical_streaming_h743",
+                                                 "artifacts":  [
+                                                                   {
+                                                                       "path":  "firmware/sdk/build-suite/aginti_c12880_optical_streaming_h743.elf",
+                                                                       "bytes":  229536,
+                                                                       "sha256":  "6449FEB3E41BE78280A360AD9A39E4D29038298B6EBE0C3C7702E8481412F9FA"
+                                                                   },
+                                                                   {
+                                                                       "path":  "firmware/sdk/build-suite/aginti_c12880_optical_streaming_h743.bin",
+                                                                       "bytes":  49652,
+                                                                       "sha256":  "403E60B1599BC1F4661BE3BCBBC8A57BB59A1E213A4557521774CF83325A7643"
+                                                                   },
+                                                                   {
+                                                                       "path":  "firmware/sdk/build-suite/aginti_c12880_optical_streaming_h743.hex",
+                                                                       "bytes":  139746,
+                                                                       "sha256":  "ED5A5A626EFE1C051E99AD87CE8CC72D2AEB981065EA0DC0286DE2D2EAADC405"
+                                                                   },
+                                                                   {
+                                                                       "path":  "firmware/sdk/build-suite/aginti_c12880_optical_streaming_h743.map",
+                                                                       "bytes":  341525,
+                                                                       "sha256":  "5DFC4693A2A2774C7099A5904516336267A0104615D9B8264CB3F48C72085F2E"
+                                                                   }
+                                                               ]
+                                             },
                        "performance":  {
-                                           "version":  "0.3.3",
-                                           "validation_state":  "TRANSPORT_ONLY_OPTICAL_FAILURE",
+                                           "version":  "0.3.0",
                                            "profile":  "TIM2 GPIO DMA + ADC DMA + USB CDC + legacy/V2 protocols",
                                            "target":  "aginti_c12880_h743",
                                            "artifacts":  [
                                                              {
                                                                  "path":  "firmware/sdk/build-suite/aginti_c12880_h743.elf",
-                                                                 "bytes":  288164,
-                                                                 "sha256":  "5DBF07D329F3BE6778FB24322EA214B199C5EFAF90AB20F248BCAA8B5B5FE892"
+                                                                 "bytes":  289172,
+                                                                 "sha256":  "6D97030C9FAABA95D24C51872302BD95F13AADC14E97AE03ABA2BDAFD4FC55D6"
                                                              },
                                                              {
                                                                  "path":  "firmware/sdk/build-suite/aginti_c12880_h743.bin",
-                                                                 "bytes":  55880,
-                                                                 "sha256":  "04CD5791F3FB8466891C01A69E5CE4861DCF48B1CC23E22F3A85454038A94500"
+                                                                 "bytes":  56336,
+                                                                 "sha256":  "0699E26B1E201E42358F165A4336E1A6588F98E00E1189374AC301607A9BC8CF"
                                                              },
                                                              {
                                                                  "path":  "firmware/sdk/build-suite/aginti_c12880_h743.hex",
-                                                                 "bytes":  157259,
-                                                                 "sha256":  "B594DD1C5BDD85CBB71C8661DB8C21EAC03C44BD1CB50421E5C3B35479A9DF39"
+                                                                 "bytes":  158535,
+                                                                 "sha256":  "7F448C80303662D0749588A5C0DD59A32ABCCEDF87E6287ADF889D1DC897D8EB"
                                                              },
                                                              {
                                                                  "path":  "firmware/sdk/build-suite/aginti_c12880_h743.map",
-                                                                 "bytes":  320934,
-                                                                 "sha256":  "3DFEDC17F456FBA7A0CEEDF0166D971C9DD9C8D7A7BAA7969016AA6491BA8B09"
+                                                                 "bytes":  321108,
+                                                                 "sha256":  "93368AF33647DEF1F9D1742BD0889BE623BC674BFD51DE452FD02511CEB05954"
                                                              }
                                                          ]
                                        },
@@ -100,10 +127,9 @@
                                            "published":  false
                                        },
     "safety":  {
-                   "flashed":  true,
-                   "erased":  true,
+                   "flashed":  false,
+                   "erased":  false,
                    "option_bytes_modified":  false,
-                   "eeprom_modified":  false,
-                   "active_device_firmware":  "private vendor original restored"
+                   "eeprom_modified":  false
                }
 }

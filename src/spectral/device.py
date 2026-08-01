@@ -120,7 +120,7 @@ def choose_port(requested: str | None = None) -> PortDescriptor:
     return ports[0]
 
 
-class C12880Device:
+class LegacyC12880Device:
     def __init__(
         self,
         port: str | None = None,
@@ -354,6 +354,122 @@ class C12880Device:
             "trigger_mode": self.trigger_mode,
             "exposure_ms": self.exposure_ms,
         }
+
+
+class C12880Device:
+    """Auto-detect original vendor firmware first, then AgInTi V2."""
+
+    V2_USB_SERIALS = {"A33560385933"}
+
+    def __init__(self, *args, **kwargs) -> None:
+        self._args = args
+        self._kwargs = kwargs
+        self._backend = None
+        self.requested_port = kwargs.get("port", args[0] if args else None)
+        self.transport_mode = "disconnected"
+        self.firmware_name = "Unknown"
+
+    def connect(self):
+        if self._backend is not None and getattr(self._backend, "is_open", False):
+            return self._backend.connect()
+        selected = next(
+            (
+                port for port in enumerate_ports()
+                if self.requested_port is None
+                or port.device.casefold() == str(self.requested_port).casefold()
+            ),
+            None,
+        )
+        prefer_v2 = bool(
+            selected
+            and selected.serial_number
+            and selected.serial_number.upper() in self.V2_USB_SERIALS
+        )
+        v2_error: Exception | None = None
+        if prefer_v2:
+            from .device_v2 import V2C12880Device
+
+            modern = V2C12880Device(port=self.requested_port)
+            try:
+                descriptor = modern.connect()
+                self._backend = modern
+                self.transport_mode = modern.transport_mode
+                self.firmware_name = modern.firmware_name
+                return descriptor
+            except Exception as exc:
+                v2_error = exc
+                modern.close()
+
+        legacy = LegacyC12880Device(*self._args, **self._kwargs)
+        legacy_error: Exception | None = None
+        try:
+            descriptor = legacy.connect()
+            self._backend = legacy
+            self.transport_mode = "legacy-vendor"
+            self.firmware_name = "Original vendor firmware"
+            return descriptor
+        except Exception as exc:
+            legacy_error = exc
+            legacy.close()
+
+        if prefer_v2:
+            raise DeviceError(
+                f"Neither V2 nor original firmware responded. "
+                f"V2: {v2_error}; original: {legacy_error}"
+            ) from legacy_error
+
+        from .device_v2 import V2C12880Device
+
+        modern = V2C12880Device(port=self.requested_port)
+        try:
+            descriptor = modern.connect()
+            self._backend = modern
+            self.transport_mode = modern.transport_mode
+            self.firmware_name = modern.firmware_name
+            return descriptor
+        except Exception as modern_error:
+            modern.close()
+            raise DeviceError(
+                f"Neither original nor V2 firmware responded. "
+                f"Original: {legacy_error}; V2: {modern_error}"
+            ) from modern_error
+
+    def close(self) -> None:
+        backend = self._backend
+        self._backend = None
+        if backend is not None:
+            backend.close()
+        self.transport_mode = "disconnected"
+
+    @property
+    def is_open(self) -> bool:
+        return bool(self._backend and getattr(self._backend, "is_open", False))
+
+    @property
+    def correction_words(self):
+        return getattr(self._backend, "correction_words", np.empty(0, dtype=np.uint16))
+
+    @property
+    def descriptor(self):
+        return getattr(self._backend, "descriptor", None)
+
+    @property
+    def last_raw(self) -> bytes:
+        return getattr(self._backend, "last_raw", b"")
+
+    def diagnostic_report(self) -> dict[str, object]:
+        report = self._backend.diagnostic_report() if self._backend is not None else {}
+        report.update(
+            transport_mode=self.transport_mode,
+            firmware_name=self.firmware_name,
+        )
+        return report
+
+    def __getattr__(self, name):
+        backend = self.__dict__.get("_backend")
+        if backend is None:
+            raise AttributeError(name)
+        return getattr(backend, name)
 
 
 def port_report(ports: Iterable[PortDescriptor] | None = None) -> list[dict[str, object]]:
