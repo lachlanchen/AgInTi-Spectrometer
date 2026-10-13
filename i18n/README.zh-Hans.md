@@ -2,6 +2,8 @@
 
 [English](../README.md) · [العربية](README.ar.md) · [Español](README.es.md) · [Français](README.fr.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Tiếng Việt](README.vi.md) · [中文 (简体)](README.zh-Hans.md) · [中文（繁體）](README.zh-Hant.md) · [Deutsch](README.de.md) · [Русский](README.ru.md)
 
+[![LazyingArt banner](https://github.com/lachlanchen/lachlanchen/raw/main/figs/banner.png)](https://lazying.art)
+
 ![AgInTi Spectrometer 产品原型](../docs/assets/aginti-spectrometer-hero.png)
 
 AgInTi Spectrometer 是面向 C12880MA 光谱仪的高速采集与可视化工作台。统一采集核心同时服务于 Qt 桌面端、Web 界面、CSV 记录、命令行和 REST API，并将串口采集与绘图解耦，以保持较高时间分辨率。

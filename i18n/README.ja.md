@@ -2,6 +2,8 @@
 
 [English](../README.md) · [العربية](README.ar.md) · [Español](README.es.md) · [Français](README.fr.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Tiếng Việt](README.vi.md) · [中文 (简体)](README.zh-Hans.md) · [中文（繁體）](README.zh-Hant.md) · [Deutsch](README.de.md) · [Русский](README.ru.md)
 
+[![LazyingArt banner](https://github.com/lachlanchen/lachlanchen/raw/main/figs/banner.png)](https://lazying.art)
+
 ![AgInTi Spectrometer 製品プロトタイプ](../docs/assets/aginti-spectrometer-hero.png)
 
 AgInTi Spectrometer は C12880MA 用の高速取得・可視化ワークベンチです。単一の取得コアから Qt デスクトップ、Web ダッシュボード、CSV 記録、CLI、REST API を提供し、シリアル取得と描画を分離して時間分解能を維持します。

@@ -2,6 +2,8 @@
 
 [English](../README.md) · [العربية](README.ar.md) · [Español](README.es.md) · [Français](README.fr.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Tiếng Việt](README.vi.md) · [中文 (简体)](README.zh-Hans.md) · [中文（繁體）](README.zh-Hant.md) · [Deutsch](README.de.md) · [Русский](README.ru.md)
 
+[![LazyingArt banner](https://github.com/lachlanchen/lachlanchen/raw/main/figs/banner.png)](https://lazying.art)
+
 ![Prototype AgInTi Spectrometer](../docs/assets/aginti-spectrometer-hero.png)
 
 AgInTi Spectrometer est un poste d’acquisition et de visualisation rapide pour le C12880MA. Un même cœur alimente l’application Qt, le tableau de bord web, l’enregistrement CSV, la CLI et l’API REST. L’acquisition série reste séparée du rendu afin de préserver la résolution temporelle.
